@@ -1,4 +1,5 @@
 import express from "express";
+import { join } from "path";
 import { collectSystem } from "./collectors/system.js";
 import { collectPM2 } from "./collectors/pm2.js";
 import { collectConnectivity } from "./collectors/connectivity.js";
@@ -18,12 +19,15 @@ app.use((_req, res, next) => {
   next();
 });
 
-// Routes
+// API routes
 app.use("/status", statusRouter);
 app.use("/system", systemRouter);
 app.use("/pm2", pm2Router);
 app.use("/connectivity", connectivityRouter);
 app.use("/health", healthRouter);
+
+// Serve dashboard UI
+app.use(express.static(join(import.meta.dirname, "..", "public")));
 
 // Start background collectors
 async function startCollectors() {

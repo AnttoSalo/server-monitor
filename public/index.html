@@ -1,0 +1,451 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Server Monitor</title>
+<style>
+  :root {
+    --bg: #0a0a14;
+    --surface: #0c0c18;
+    --border: rgba(255,255,255,0.08);
+    --text: #e2e8f0;
+    --muted: rgba(255,255,255,0.4);
+    --cyan: #22d3ee;
+    --green: #4ade80;
+    --red: #f87171;
+    --amber: #fbbf24;
+    --blue: #60a5fa;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { background: var(--bg); color: var(--text); font-family: 'SF Mono', 'Cascadia Code', 'Fira Code', 'Consolas', monospace; font-size: 12px; min-height: 100vh; }
+  a { color: var(--cyan); text-decoration: none; }
+  a:hover { text-decoration: underline; }
+
+  .header { padding: 16px 24px; border-bottom: 1px solid var(--border); display: flex; align-items: center; justify-content: space-between; }
+  .header h1 { font-size: 10px; font-weight: 600; letter-spacing: 0.2em; text-transform: uppercase; color: var(--cyan); }
+  .header-meta { display: flex; gap: 16px; align-items: center; font-size: 9px; color: var(--muted); }
+  .status-dot { width: 6px; height: 6px; border-radius: 50%; display: inline-block; margin-right: 4px; }
+  .status-dot.online { background: var(--green); }
+  .status-dot.degraded { background: var(--amber); }
+  .status-dot.offline { background: var(--red); }
+
+  .tabs { display: flex; border-bottom: 1px solid var(--border); padding: 0 24px; }
+  .tab { padding: 10px 16px; font-size: 10px; text-transform: uppercase; letter-spacing: 0.1em; color: var(--muted); cursor: pointer; border-bottom: 2px solid transparent; transition: all 0.2s; }
+  .tab:hover { color: var(--text); }
+  .tab.active { color: var(--cyan); border-color: var(--cyan); }
+
+  .content { padding: 20px 24px; }
+  .tab-content { display: none; }
+  .tab-content.active { display: block; }
+
+  .grid { display: grid; gap: 16px; }
+  .grid-2 { grid-template-columns: 1fr 1fr; }
+  .grid-3 { grid-template-columns: 1fr 1fr 1fr; }
+  .grid-4 { grid-template-columns: 1fr 1fr 1fr 1fr; }
+
+  .card { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 16px; }
+  .card-title { font-size: 9px; text-transform: uppercase; letter-spacing: 0.15em; color: var(--muted); margin-bottom: 10px; }
+  .stat-value { font-size: 28px; font-weight: 700; }
+  .stat-label { font-size: 9px; color: var(--muted); margin-top: 2px; }
+  .stat-sub { font-size: 10px; color: var(--muted); }
+
+  /* Gauge */
+  .gauge-row { display: flex; gap: 24px; justify-content: center; padding: 8px 0; }
+  .gauge { text-align: center; }
+  .gauge svg { width: 100px; height: 100px; }
+  .gauge-label { font-size: 9px; color: var(--muted); margin-top: 4px; text-transform: uppercase; letter-spacing: 0.1em; }
+  .gauge-detail { font-size: 10px; color: var(--text); opacity: 0.7; }
+
+  /* Progress bar */
+  .bar-bg { background: rgba(255,255,255,0.05); border-radius: 3px; height: 6px; overflow: hidden; }
+  .bar-fill { height: 100%; border-radius: 3px; transition: width 0.3s; }
+
+  /* Process table */
+  table { width: 100%; border-collapse: collapse; }
+  th { text-align: left; font-size: 9px; text-transform: uppercase; letter-spacing: 0.1em; color: var(--muted); padding: 8px 12px; border-bottom: 1px solid var(--border); }
+  td { padding: 6px 12px; font-size: 11px; border-bottom: 1px solid rgba(255,255,255,0.03); }
+  tr:hover td { background: rgba(255,255,255,0.02); }
+  .status-badge { display: inline-flex; align-items: center; gap: 4px; font-size: 10px; }
+
+  /* Connectivity */
+  .target-row { display: flex; align-items: center; justify-content: space-between; padding: 6px 0; border-bottom: 1px solid rgba(255,255,255,0.03); }
+  .target-host { font-size: 11px; }
+  .target-latency { font-size: 11px; color: var(--muted); }
+  .latency-bar { width: 60px; height: 4px; background: rgba(255,255,255,0.05); border-radius: 2px; overflow: hidden; display: inline-block; margin-left: 8px; vertical-align: middle; }
+  .latency-fill { height: 100%; border-radius: 2px; background: var(--cyan); }
+
+  /* Logs */
+  .log-controls { display: flex; gap: 8px; align-items: center; margin-bottom: 12px; }
+  .log-controls select, .log-controls button { background: var(--surface); border: 1px solid var(--border); color: var(--text); padding: 6px 10px; border-radius: 4px; font-family: inherit; font-size: 11px; cursor: pointer; }
+  .log-controls button:hover { border-color: var(--cyan); }
+  .log-viewer { background: #050510; border: 1px solid var(--border); border-radius: 6px; padding: 12px; height: 500px; overflow-y: auto; white-space: pre-wrap; word-break: break-all; font-size: 10px; line-height: 1.6; color: rgba(255,255,255,0.7); }
+
+  /* History charts placeholder */
+  .chart-container { position: relative; height: 180px; background: var(--surface); border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }
+  .chart-canvas { width: 100%; height: 100%; }
+  .chart-title { position: absolute; top: 8px; left: 12px; font-size: 9px; text-transform: uppercase; letter-spacing: 0.1em; color: var(--muted); }
+  .period-selector { display: flex; gap: 4px; margin-bottom: 12px; }
+  .period-btn { background: transparent; border: 1px solid var(--border); color: var(--muted); padding: 4px 12px; border-radius: 4px; font-family: inherit; font-size: 10px; cursor: pointer; }
+  .period-btn:hover { border-color: rgba(255,255,255,0.2); color: var(--text); }
+  .period-btn.active { border-color: var(--cyan); color: var(--cyan); background: rgba(34,211,238,0.08); }
+
+  .loading { color: var(--muted); font-size: 11px; padding: 20px; text-align: center; }
+
+  @media (max-width: 768px) {
+    .grid-2, .grid-3, .grid-4 { grid-template-columns: 1fr; }
+    .gauge-row { flex-wrap: wrap; }
+  }
+</style>
+</head>
+<body>
+
+<header class="header">
+  <h1>Server Monitor</h1>
+  <div class="header-meta">
+    <span id="connectivity-badge"><span class="status-dot"></span>...</span>
+    <span id="hostname">—</span>
+    <span id="uptime-display">—</span>
+    <span id="last-updated">—</span>
+  </div>
+</header>
+
+<nav class="tabs">
+  <div class="tab active" data-tab="overview">Overview</div>
+  <div class="tab" data-tab="processes">Processes</div>
+  <div class="tab" data-tab="network">Network</div>
+  <div class="tab" data-tab="history">History</div>
+  <div class="tab" data-tab="logs">Logs</div>
+</nav>
+
+<main class="content">
+  <!-- OVERVIEW -->
+  <div class="tab-content active" id="tab-overview">
+    <div class="gauge-row" id="gauges"></div>
+    <div class="grid grid-2" style="margin-top:16px">
+      <div class="card">
+        <div class="card-title">Disk Usage</div>
+        <div id="disk-list"></div>
+      </div>
+      <div class="card">
+        <div class="card-title">Network</div>
+        <div id="network-stats"></div>
+      </div>
+    </div>
+    <div class="card" style="margin-top:16px">
+      <div class="card-title">PM2 Processes</div>
+      <table>
+        <thead><tr><th>Name</th><th>Status</th><th>CPU</th><th>Memory</th><th>Uptime</th><th>Restarts</th></tr></thead>
+        <tbody id="pm2-overview"></tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- PROCESSES -->
+  <div class="tab-content" id="tab-processes">
+    <div class="card">
+      <div class="card-title">PM2 Processes</div>
+      <table>
+        <thead><tr><th>ID</th><th>Name</th><th>Status</th><th>CPU %</th><th>Memory</th><th>Uptime</th><th>Restarts</th></tr></thead>
+        <tbody id="pm2-full"></tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- NETWORK -->
+  <div class="tab-content" id="tab-network">
+    <div class="grid grid-2">
+      <div class="card">
+        <div class="card-title">Connectivity</div>
+        <div id="conn-status" style="margin-bottom:12px"></div>
+        <div id="conn-targets"></div>
+      </div>
+      <div class="card">
+        <div class="card-title">Details</div>
+        <div id="conn-details"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- HISTORY -->
+  <div class="tab-content" id="tab-history">
+    <div class="period-selector" id="period-selector">
+      <button class="period-btn active" data-range="1h">1H</button>
+      <button class="period-btn" data-range="6h">6H</button>
+      <button class="period-btn" data-range="24h">24H</button>
+      <button class="period-btn" data-range="7d">7D</button>
+    </div>
+    <div class="grid grid-2" id="history-charts">
+      <div class="chart-container"><div class="chart-title">CPU %</div><canvas class="chart-canvas" id="chart-cpu"></canvas></div>
+      <div class="chart-container"><div class="chart-title">Memory %</div><canvas class="chart-canvas" id="chart-mem"></canvas></div>
+      <div class="chart-container"><div class="chart-title">Network RX (KB/s)</div><canvas class="chart-canvas" id="chart-rx"></canvas></div>
+      <div class="chart-container"><div class="chart-title">Network TX (KB/s)</div><canvas class="chart-canvas" id="chart-tx"></canvas></div>
+    </div>
+  </div>
+
+  <!-- LOGS -->
+  <div class="tab-content" id="tab-logs">
+    <div class="log-controls">
+      <select id="log-process"></select>
+      <button id="log-refresh">Refresh</button>
+      <span id="log-count" style="color:var(--muted);font-size:10px"></span>
+    </div>
+    <div class="log-viewer" id="log-viewer">Select a process and click Refresh.</div>
+  </div>
+</main>
+
+<script>
+const API = window.location.origin;
+let statusData = null;
+
+// --- Tabs ---
+document.querySelectorAll('.tab').forEach(tab => {
+  tab.addEventListener('click', () => {
+    document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+    document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
+    tab.classList.add('active');
+    document.getElementById('tab-' + tab.dataset.tab).classList.add('active');
+  });
+});
+
+// --- Helpers ---
+function formatUptime(ms) {
+  const s = Math.floor(ms / 1000);
+  const d = Math.floor(s / 86400), h = Math.floor((s % 86400) / 3600), m = Math.floor((s % 3600) / 60);
+  if (d > 0) return d + 'd ' + h + 'h';
+  if (h > 0) return h + 'h ' + m + 'm';
+  return m + 'm';
+}
+function formatOsUptime(sec) {
+  const d = Math.floor(sec / 86400), h = Math.floor((sec % 86400) / 3600);
+  return d > 0 ? d + 'd ' + h + 'h' : h + 'h';
+}
+function formatSpeed(kbps) {
+  return kbps >= 1024 ? (kbps/1024).toFixed(1) + ' MB/s' : kbps.toFixed(0) + ' KB/s';
+}
+function statusColor(status) {
+  return status === 'online' ? 'var(--green)' : status === 'errored' ? 'var(--amber)' : 'var(--red)';
+}
+
+function makeGauge(pct, label, detail, color) {
+  const r = 38, c = 2 * Math.PI * r, offset = c * (1 - pct / 100);
+  return `<div class="gauge">
+    <svg viewBox="0 0 100 100">
+      <circle cx="50" cy="50" r="${r}" fill="none" stroke="rgba(255,255,255,0.05)" stroke-width="6"/>
+      <circle cx="50" cy="50" r="${r}" fill="none" stroke="${color}" stroke-width="6"
+        stroke-dasharray="${c}" stroke-dashoffset="${offset}" stroke-linecap="round"
+        transform="rotate(-90 50 50)" style="transition:stroke-dashoffset 0.5s"/>
+      <text x="50" y="48" text-anchor="middle" fill="${color}" font-size="18" font-weight="700" font-family="inherit">${Math.round(pct)}%</text>
+      <text x="50" y="62" text-anchor="middle" fill="rgba(255,255,255,0.4)" font-size="8" font-family="inherit">${detail}</text>
+    </svg>
+    <div class="gauge-label">${label}</div>
+  </div>`;
+}
+
+// --- Render ---
+function renderOverview(data) {
+  const s = data.system, m = data.meta;
+  const cpuColor = s.cpu > 80 ? 'var(--red)' : s.cpu > 50 ? 'var(--amber)' : 'var(--green)';
+  const memColor = s.memory.percent > 80 ? 'var(--red)' : s.memory.percent > 60 ? 'var(--amber)' : 'var(--green)';
+  const diskPct = s.disk[0]?.percent || 0;
+  const diskColor = diskPct > 90 ? 'var(--red)' : diskPct > 75 ? 'var(--amber)' : 'var(--cyan)';
+
+  document.getElementById('gauges').innerHTML =
+    makeGauge(s.cpu, 'CPU', '', cpuColor) +
+    makeGauge(s.memory.percent, 'RAM', s.memory.used + '/' + s.memory.total + ' GB', memColor) +
+    makeGauge(diskPct, 'Disk', s.disk[0] ? s.disk[0].mount : '', diskColor);
+
+  document.getElementById('disk-list').innerHTML = s.disk.map(d => `
+    <div style="margin-bottom:8px">
+      <div style="display:flex;justify-content:space-between;margin-bottom:3px">
+        <span>${d.mount}</span><span style="color:var(--muted)">${d.used}/${d.total} GB (${d.percent}%)</span>
+      </div>
+      <div class="bar-bg"><div class="bar-fill" style="width:${d.percent}%;background:${d.percent>90?'var(--red)':d.percent>75?'var(--amber)':'var(--cyan)'}"></div></div>
+    </div>`).join('');
+
+  document.getElementById('network-stats').innerHTML = `
+    <div style="display:flex;gap:24px;padding:8px 0">
+      <div><span style="color:var(--green)">&#x2193;</span> ${formatSpeed(s.network.rxKBps)}</div>
+      <div><span style="color:var(--amber)">&#x2191;</span> ${formatSpeed(s.network.txKBps)}</div>
+    </div>`;
+
+  document.getElementById('pm2-overview').innerHTML = data.pm2.processes
+    .filter(p => p.name !== 'pm2-logrotate')
+    .map(p => `<tr>
+      <td>${p.name}</td>
+      <td><span class="status-badge"><span class="status-dot" style="background:${statusColor(p.status)}"></span>${p.status}</span></td>
+      <td>${p.cpu.toFixed(1)}%</td>
+      <td>${p.memoryMB} MB</td>
+      <td style="color:var(--muted)">${formatUptime(p.uptimeMs)}</td>
+      <td style="color:var(--muted)">${p.restarts}</td>
+    </tr>`).join('');
+
+  // Header
+  const conn = data.connectivity;
+  document.getElementById('connectivity-badge').innerHTML =
+    `<span class="status-dot ${conn.status}"></span>${conn.status}`;
+  document.getElementById('hostname').textContent = m.hostname;
+  document.getElementById('uptime-display').textContent = formatOsUptime(m.uptime) + ' up';
+  document.getElementById('last-updated').textContent = new Date().toLocaleTimeString();
+}
+
+function renderProcesses(data) {
+  document.getElementById('pm2-full').innerHTML = data.pm2.processes.map(p => `<tr>
+    <td style="color:var(--muted)">${p.id}</td>
+    <td>${p.name}</td>
+    <td><span class="status-badge"><span class="status-dot" style="background:${statusColor(p.status)}"></span>${p.status}</span></td>
+    <td>${p.cpu.toFixed(1)}%</td>
+    <td>${p.memoryMB} MB</td>
+    <td style="color:var(--muted)">${formatUptime(p.uptimeMs)}</td>
+    <td style="color:var(--muted)">${p.restarts}</td>
+  </tr>`).join('');
+}
+
+function renderNetwork(data) {
+  const c = data.connectivity;
+  document.getElementById('conn-status').innerHTML = `
+    <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">
+      <span class="status-dot ${c.status}" style="width:8px;height:8px"></span>
+      <span style="font-size:14px;font-weight:600;color:${c.status==='online'?'var(--green)':c.status==='degraded'?'var(--amber)':'var(--red)'}">${c.status.toUpperCase()}</span>
+    </div>`;
+
+  document.getElementById('conn-targets').innerHTML = c.targets.map(t => {
+    const barW = t.reachable ? Math.min(t.latencyMs / 100 * 100, 100) : 100;
+    const barColor = !t.reachable ? 'var(--red)' : t.latencyMs > 100 ? 'var(--amber)' : 'var(--cyan)';
+    return `<div class="target-row">
+      <div style="display:flex;align-items:center;gap:6px">
+        <span class="status-dot" style="background:${t.reachable?'var(--green)':'var(--red)'}"></span>
+        <span class="target-host">${t.host}</span>
+      </div>
+      <div>
+        <span class="target-latency">${t.reachable ? t.latencyMs + 'ms' : 'unreachable'}</span>
+        <div class="latency-bar"><div class="latency-fill" style="width:${barW}%;background:${barColor}"></div></div>
+      </div>
+    </div>`;
+  }).join('');
+
+  document.getElementById('conn-details').innerHTML = `
+    <div style="padding:4px 0">
+      <div style="margin-bottom:8px"><span style="color:var(--muted)">WAN IP:</span> ${c.wanIp || '—'}</div>
+      <div style="margin-bottom:8px"><span style="color:var(--muted)">Last check:</span> ${new Date(c.lastChecked).toLocaleTimeString()}</div>
+      <div><span style="color:var(--muted)">Network:</span> &#x2193; ${formatSpeed(statusData.system.network.rxKBps)} / &#x2191; ${formatSpeed(statusData.system.network.txKBps)}</div>
+    </div>`;
+}
+
+// --- Charts ---
+function drawChart(canvasId, entries, key, color) {
+  const canvas = document.getElementById(canvasId);
+  const ctx = canvas.getContext('2d');
+  const rect = canvas.parentElement.getBoundingClientRect();
+  canvas.width = rect.width * 2; canvas.height = rect.height * 2;
+  ctx.scale(2, 2);
+  const w = rect.width, h = rect.height;
+  const pad = { top: 28, right: 12, bottom: 20, left: 40 };
+
+  const values = entries.map(e => e[key] ?? 0);
+  if (values.length < 2) { ctx.fillStyle = 'rgba(255,255,255,0.2)'; ctx.font = '11px monospace'; ctx.fillText('Waiting for data...', w/2 - 50, h/2); return; }
+
+  const max = Math.max(...values, 1) * 1.1;
+  const plotW = w - pad.left - pad.right, plotH = h - pad.top - pad.bottom;
+
+  // Grid
+  ctx.strokeStyle = 'rgba(255,255,255,0.04)'; ctx.lineWidth = 0.5;
+  for (let i = 0; i <= 4; i++) {
+    const y = pad.top + (plotH / 4) * i;
+    ctx.beginPath(); ctx.moveTo(pad.left, y); ctx.lineTo(w - pad.right, y); ctx.stroke();
+    ctx.fillStyle = 'rgba(255,255,255,0.25)'; ctx.font = '8px monospace'; ctx.textAlign = 'right';
+    ctx.fillText(Math.round(max - (max/4)*i).toString(), pad.left - 4, y + 3);
+  }
+
+  // Area
+  ctx.beginPath();
+  values.forEach((v, i) => {
+    const x = pad.left + (i / (values.length - 1)) * plotW;
+    const y = pad.top + plotH - (v / max) * plotH;
+    i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+  });
+  const gradient = ctx.createLinearGradient(0, pad.top, 0, h - pad.bottom);
+  gradient.addColorStop(0, color + '40'); gradient.addColorStop(1, color + '00');
+  ctx.lineTo(pad.left + plotW, pad.top + plotH); ctx.lineTo(pad.left, pad.top + plotH); ctx.closePath();
+  ctx.fillStyle = gradient; ctx.fill();
+
+  // Line
+  ctx.beginPath();
+  values.forEach((v, i) => {
+    const x = pad.left + (i / (values.length - 1)) * plotW;
+    const y = pad.top + plotH - (v / max) * plotH;
+    i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+  });
+  ctx.strokeStyle = color; ctx.lineWidth = 1.5; ctx.stroke();
+}
+
+let historyRange = '1h';
+async function loadHistory() {
+  try {
+    const res = await fetch(API + '/system/history?range=' + historyRange);
+    const data = await res.json();
+    drawChart('chart-cpu', data.entries, 'cpu', '#22d3ee');
+    drawChart('chart-mem', data.entries, 'memPercent', '#4ade80');
+    drawChart('chart-rx', data.entries, 'rxKBps', '#60a5fa');
+    drawChart('chart-tx', data.entries, 'txKBps', '#fbbf24');
+  } catch {}
+}
+
+document.querySelectorAll('.period-btn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('.period-btn').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    historyRange = btn.dataset.range;
+    loadHistory();
+  });
+});
+
+// --- Logs ---
+async function loadLogs() {
+  const name = document.getElementById('log-process').value;
+  if (!name) return;
+  document.getElementById('log-viewer').textContent = 'Loading...';
+  try {
+    const res = await fetch(API + '/pm2/logs/' + name + '?lines=200');
+    const data = await res.json();
+    document.getElementById('log-viewer').textContent = data.lines.join('\n');
+    document.getElementById('log-count').textContent = data.lines.length + ' lines';
+    document.getElementById('log-viewer').scrollTop = document.getElementById('log-viewer').scrollHeight;
+  } catch (e) { document.getElementById('log-viewer').textContent = 'Error: ' + e.message; }
+}
+document.getElementById('log-refresh').addEventListener('click', loadLogs);
+
+// --- Polling ---
+async function poll() {
+  try {
+    const res = await fetch(API + '/status');
+    statusData = await res.json();
+    renderOverview(statusData);
+    renderProcesses(statusData);
+    renderNetwork(statusData);
+
+    // Populate log dropdown
+    const sel = document.getElementById('log-process');
+    const current = sel.value;
+    sel.innerHTML = statusData.pm2.processes.filter(p => p.name !== 'pm2-logrotate').map(p =>
+      `<option value="${p.name}" ${p.name === current ? 'selected' : ''}>${p.name}</option>`
+    ).join('');
+  } catch (e) {
+    document.getElementById('last-updated').textContent = 'Error: ' + e.message;
+  }
+}
+
+poll();
+loadHistory();
+setInterval(poll, 10000);
+setInterval(loadHistory, 60000);
+
+// Keyboard: 1-5 to switch tabs
+document.addEventListener('keydown', e => {
+  const idx = parseInt(e.key) - 1;
+  const tabs = document.querySelectorAll('.tab');
+  if (idx >= 0 && idx < tabs.length) tabs[idx].click();
+});
+</script>
+</body>
+</html>

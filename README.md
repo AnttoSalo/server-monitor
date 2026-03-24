@@ -1,22 +1,25 @@
 # server-monitor
 
-A lightweight server monitoring service that collects system metrics, PM2 process stats, and internet connectivity data, and exposes them via a simple REST API. Designed to run as a background service on a Linux server and be consumed by any dashboard or application.
+A lightweight server monitoring service that collects system metrics, PM2 process stats, and internet connectivity data. Includes a built-in web dashboard and a REST API for integration with other applications.
 
 **Stack:** Node.js + TypeScript + Express
 **Footprint:** ~15MB RAM, negligible CPU
 **Data:** JSON file persistence (no database required)
+**Dashboard:** Built-in web UI at the root URL — no separate frontend needed
 
 ## Quick Start
 
 ```bash
-git clone <repo-url>
+git clone https://github.com/AnttoSalo/server-monitor.git
 cd server-monitor
 npm install
 npm run build
 PORT=3099 node dist/index.js
 ```
 
-Verify it's running:
+Open `http://localhost:3099` in your browser to see the dashboard.
+
+Verify the API:
 ```bash
 curl http://localhost:3099/status
 ```
