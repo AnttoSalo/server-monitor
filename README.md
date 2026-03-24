@@ -70,7 +70,7 @@ All endpoints return JSON. No authentication required (designed for LAN use).
     "lastChecked": "2026-03-24T15:30:00.000Z"
   },
   "meta": {
-    "hostname": "homeserver",
+    "hostname": "my-server",
     "platform": "linux",
     "uptime": 1234567,
     "nodeVersion": "v22.22.1",

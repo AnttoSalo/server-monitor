@@ -1,7 +1,7 @@
 {
   "name": "server-monitor",
   "version": "1.0.0",
-  "description": "Lightweight server monitoring service for NNS homeserver",
+  "description": "Lightweight server monitoring service for Linux servers",
   "type": "module",
   "scripts": {
     "dev": "tsx watch src/index.ts",
