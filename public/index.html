@@ -195,7 +195,9 @@
 </main>
 
 <script>
-const API = window.location.origin;
+// Detect base path — works at root (localhost:3099) or under a subpath (nns.antto.org/monitor)
+const basePath = window.location.pathname.replace(/\/+$/, '').replace(/\/index\.html$/, '');
+const API = window.location.origin + basePath;
 let statusData = null;
 
 // --- Tabs ---

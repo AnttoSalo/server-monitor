@@ -3,6 +3,7 @@ import { join } from "path";
 import { collectSystem } from "./collectors/system.js";
 import { collectPM2 } from "./collectors/pm2.js";
 import { collectConnectivity } from "./collectors/connectivity.js";
+import { authMiddleware } from "./auth.js";
 import statusRouter from "./routes/status.js";
 import systemRouter from "./routes/system.js";
 import pm2Router from "./routes/pm2.js";
@@ -10,6 +11,7 @@ import connectivityRouter from "./routes/connectivity.js";
 import healthRouter from "./routes/health.js";
 
 const PORT = parseInt(process.env.PORT || "3099");
+const BASE = process.env.BASE_PATH || "";
 const app = express();
 
 // CORS — allow any local consumer
@@ -19,15 +21,18 @@ app.use((_req, res, next) => {
   next();
 });
 
-// API routes
-app.use("/status", statusRouter);
-app.use("/system", systemRouter);
-app.use("/pm2", pm2Router);
-app.use("/connectivity", connectivityRouter);
-app.use("/health", healthRouter);
+// Auth — validates NextAuth session cookie when NEXTAUTH_SECRET is set
+app.use(authMiddleware);
+
+// API routes (with optional base path prefix)
+app.use(BASE + "/status", statusRouter);
+app.use(BASE + "/system", systemRouter);
+app.use(BASE + "/pm2", pm2Router);
+app.use(BASE + "/connectivity", connectivityRouter);
+app.use(BASE + "/health", healthRouter);
 
 // Serve dashboard UI
-app.use(express.static(join(import.meta.dirname, "..", "public")));
+app.use(BASE + "/", express.static(join(import.meta.dirname, "..", "public")));
 
 // Start background collectors
 async function startCollectors() {
@@ -48,6 +53,6 @@ async function startCollectors() {
 }
 
 app.listen(PORT, () => {
-  console.log(`server-monitor listening on port ${PORT}`);
+  console.log(`server-monitor listening on port ${PORT}${BASE ? ` (base: ${BASE})` : ""}`);
   startCollectors();
 });
