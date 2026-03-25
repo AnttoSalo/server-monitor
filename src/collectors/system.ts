@@ -2,7 +2,7 @@ import { readFile } from "fs/promises";
 import { exec } from "child_process";
 import { promisify } from "util";
 import os from "os";
-import type { SystemStats, DiskInfo, SystemHistoryEntry } from "../types.js";
+import type { SystemStats, DiskInfo, SystemHistoryEntry, InterfaceStats } from "../types.js";
 import { loadJson, saveJson, pruneByAge } from "../store.js";
 
 const execAsync = promisify(exec);
@@ -10,8 +10,11 @@ const HISTORY_FILE = "system-history.json";
 const RETENTION_DAYS = parseInt(process.env.HISTORY_RETENTION_DAYS || "7");
 const PERSIST_INTERVAL_MS = 60_000;
 
+const NETWORK_INTERFACE = process.env.NETWORK_INTERFACE || "";
+
 let lastStats: SystemStats | null = null;
 let lastPersistedAt = 0;
+let networkLoggedOnce = false;
 
 // --- CPU from /proc/stat ---
 
@@ -83,32 +86,72 @@ async function getDisks(): Promise<DiskInfo[]> {
 
 // --- Network from /proc/net/dev ---
 
-function parseNetDev(content: string): { rx: number; tx: number } {
+interface IfaceBytes { rx: number; tx: number }
+
+function parseAllNetDev(content: string): Map<string, IfaceBytes> {
+  const result = new Map<string, IfaceBytes>();
   const lines = content.trim().split("\n").slice(2);
   for (const line of lines) {
     const match = line.match(/^\s*(\S+):\s*(.*)/);
     if (match && match[1] !== "lo") {
       const values = match[2].trim().split(/\s+/).map(Number);
-      return { rx: values[0] || 0, tx: values[8] || 0 };
+      result.set(match[1], { rx: values[0] || 0, tx: values[8] || 0 });
     }
   }
-  return { rx: 0, tx: 0 };
+  return result;
 }
 
-async function getNetwork(): Promise<{ rxKBps: number; txKBps: number }> {
+function logNetworkInterfaces(ifaces: Map<string, IfaceBytes>): void {
+  if (networkLoggedOnce) return;
+  networkLoggedOnce = true;
+  const names = [...ifaces.keys()];
+  if (NETWORK_INTERFACE) {
+    if (ifaces.has(NETWORK_INTERFACE)) {
+      console.log(`Network: monitoring interface ${NETWORK_INTERFACE}`);
+    } else {
+      console.warn(`Network: interface '${NETWORK_INTERFACE}' not found. Available: ${names.join(", ") || "none"}`);
+    }
+  } else {
+    console.log(`Network: monitoring all interfaces (${names.join(", ") || "none"})`);
+  }
+}
+
+async function getNetwork(): Promise<{ rxKBps: number; txKBps: number; interfaces: InterfaceStats[] }> {
   try {
-    const c1 = parseNetDev(await readFile("/proc/net/dev", "utf-8"));
+    const all1 = parseAllNetDev(await readFile("/proc/net/dev", "utf-8"));
+    logNetworkInterfaces(all1);
     const t1 = Date.now();
     await new Promise((r) => setTimeout(r, 100));
-    const c2 = parseNetDev(await readFile("/proc/net/dev", "utf-8"));
+    const all2 = parseAllNetDev(await readFile("/proc/net/dev", "utf-8"));
     const elapsed = (Date.now() - t1) / 1000;
-    if (elapsed === 0) return { rxKBps: 0, txKBps: 0 };
-    return {
-      rxKBps: Math.max(0, Math.round(((c2.rx - c1.rx) / 1024 / elapsed) * 10) / 10),
-      txKBps: Math.max(0, Math.round(((c2.tx - c1.tx) / 1024 / elapsed) * 10) / 10),
-    };
+    if (elapsed === 0) return { rxKBps: 0, txKBps: 0, interfaces: [] };
+
+    // Compute per-interface deltas (only for interfaces present in both samples)
+    const perIface: InterfaceStats[] = [];
+    for (const [name, b2] of all2) {
+      const b1 = all1.get(name);
+      if (!b1) continue;
+      perIface.push({
+        name,
+        rxKBps: Math.max(0, Math.round(((b2.rx - b1.rx) / 1024 / elapsed) * 10) / 10),
+        txKBps: Math.max(0, Math.round(((b2.tx - b1.tx) / 1024 / elapsed) * 10) / 10),
+      });
+    }
+
+    // Aggregate: sum per-interface deltas (or single interface if env var set)
+    let rxKBps = 0, txKBps = 0;
+    if (NETWORK_INTERFACE) {
+      const iface = perIface.find((i) => i.name === NETWORK_INTERFACE);
+      if (iface) { rxKBps = iface.rxKBps; txKBps = iface.txKBps; }
+    } else {
+      for (const i of perIface) { rxKBps += i.rxKBps; txKBps += i.txKBps; }
+      rxKBps = Math.round(rxKBps * 10) / 10;
+      txKBps = Math.round(txKBps * 10) / 10;
+    }
+
+    return { rxKBps, txKBps, interfaces: perIface };
   } catch {
-    return { rxKBps: 0, txKBps: 0 };
+    return { rxKBps: 0, txKBps: 0, interfaces: [] };
   }
 }
 

@@ -17,7 +17,7 @@ router.get("/", (_req, res) => {
       cpu: 0,
       memory: { used: 0, total: 0, percent: 0 },
       disk: [],
-      network: { rxKBps: 0, txKBps: 0 },
+      network: { rxKBps: 0, txKBps: 0, interfaces: [] },
     },
     pm2: { processes },
     connectivity,

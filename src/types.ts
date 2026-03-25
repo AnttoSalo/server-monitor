@@ -1,8 +1,14 @@
+export interface InterfaceStats {
+  name: string;
+  rxKBps: number;
+  txKBps: number;
+}
+
 export interface SystemStats {
   cpu: number;
   memory: { used: number; total: number; percent: number };
   disk: DiskInfo[];
-  network: { rxKBps: number; txKBps: number };
+  network: { rxKBps: number; txKBps: number; interfaces: InterfaceStats[] };
 }
 
 export interface DiskInfo {
