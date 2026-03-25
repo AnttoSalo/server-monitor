@@ -29,18 +29,9 @@ jobs:
       - name: Check server state
         run: |
           ssh deploy-target << 'SCRIPT'
-            echo "=== PM2 ENV (NEXTAUTH) ==="
-            pm2 env 8 2>/dev/null | grep -i nextauth || echo "not found in pm2 env"
+            echo "=== CURL LOCAL SYSTEM ==="
+            curl -s http://localhost:3099/monitor/system 2>&1
             echo ""
-            echo "=== PM2 DESCRIBE ==="
-            pm2 describe monitor 2>/dev/null | head -30
-            echo ""
-            echo "=== CHECK /proc/net/dev ==="
-            cat /proc/net/dev
-            echo ""
-            echo "=== MONITOR LOGS (last 30 lines) ==="
-            pm2 logs monitor --nostream --lines 30 2>&1
-            echo ""
-            echo "=== CURL LOCAL STATUS ==="
-            curl -s http://localhost:3099/system 2>&1 | head -500
+            echo "=== MONITOR LOGS (last 15 lines) ==="
+            pm2 logs monitor --nostream --lines 15 2>&1
           SCRIPT
