@@ -1,0 +1,46 @@
+name: Debug server
+
+on:
+  workflow_dispatch:
+
+jobs:
+  debug:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Install cloudflared
+        run: |
+          curl -fsSL https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64.deb -o cloudflared.deb
+          sudo dpkg -i cloudflared.deb
+
+      - name: Setup SSH key
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.SSH_PRIVATE_KEY }}" > ~/.ssh/id_deploy
+          chmod 600 ~/.ssh/id_deploy
+          cat >> ~/.ssh/config << 'EOF'
+          Host deploy-target
+            HostName ${{ secrets.SERVER_HOST }}
+            User ${{ secrets.SERVER_USER }}
+            IdentityFile ~/.ssh/id_deploy
+            ProxyCommand cloudflared access ssh --hostname %h
+            StrictHostKeyChecking no
+          EOF
+
+      - name: Check server state
+        run: |
+          ssh deploy-target << 'SCRIPT'
+            echo "=== PM2 ENV (NEXTAUTH) ==="
+            pm2 env 8 2>/dev/null | grep -i nextauth || echo "not found in pm2 env"
+            echo ""
+            echo "=== PM2 DESCRIBE ==="
+            pm2 describe monitor 2>/dev/null | head -30
+            echo ""
+            echo "=== CHECK /proc/net/dev ==="
+            cat /proc/net/dev
+            echo ""
+            echo "=== MONITOR LOGS (last 30 lines) ==="
+            pm2 logs monitor --nostream --lines 30 2>&1
+            echo ""
+            echo "=== CURL LOCAL STATUS ==="
+            curl -s http://localhost:3099/system 2>&1 | head -500
+          SCRIPT
