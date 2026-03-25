@@ -1,8 +1,13 @@
 import { exec } from "child_process";
 import { promisify } from "util";
+import os from "os";
 import type { TopProcess } from "../types.js";
 
 const execAsync = promisify(exec);
+const cpuCores = os.cpus().length || 1;
+
+// Filter out commands that are artifacts of our own monitoring
+const SELF_COMMANDS = ["ps aux", "head -", "pm2 jlist", "pm2 prettylist"];
 
 let lastTopProcesses: { byCpu: TopProcess[]; byMem: TopProcess[] } = { byCpu: [], byMem: [] };
 
@@ -13,12 +18,12 @@ function parsePsOutput(stdout: string): TopProcess[] {
     const parts = line.trim().split(/\s+/);
     if (parts.length < 11) continue;
     const command = parts.slice(10).join(" ");
-    // Filter out ps/head themselves — they spike during measurement
-    if (command.startsWith("ps aux") || command === "head -13") continue;
+    if (SELF_COMMANDS.some((c) => command.includes(c))) continue;
     processes.push({
       user: parts[0],
       pid: parseInt(parts[1]) || 0,
-      cpu: parseFloat(parts[2]) || 0,
+      // Normalize per-core % to total system % (e.g. 320% on 4 cores -> 80%)
+      cpu: Math.round(((parseFloat(parts[2]) || 0) / cpuCores) * 10) / 10,
       mem: parseFloat(parts[3]) || 0,
       rssKB: parseInt(parts[5]) || 0,
       command: command.substring(0, 80),
@@ -30,12 +35,12 @@ function parsePsOutput(stdout: string): TopProcess[] {
 export async function collectTopProcesses(): Promise<{ byCpu: TopProcess[]; byMem: TopProcess[] }> {
   try {
     const [byCpuResult, byMemResult] = await Promise.all([
-      execAsync("ps aux --sort=-%cpu | head -13", { timeout: 5000 }),
-      execAsync("ps aux --sort=-%mem | head -13", { timeout: 5000 }),
+      execAsync("ps aux --sort=-%cpu | head -15", { timeout: 5000 }),
+      execAsync("ps aux --sort=-%mem | head -15", { timeout: 5000 }),
     ]);
     lastTopProcesses = {
-      byCpu: parsePsOutput(byCpuResult.stdout),
-      byMem: parsePsOutput(byMemResult.stdout),
+      byCpu: parsePsOutput(byCpuResult.stdout).slice(0, 10),
+      byMem: parsePsOutput(byMemResult.stdout).slice(0, 10),
     };
   } catch {
     lastTopProcesses = { byCpu: [], byMem: [] };
