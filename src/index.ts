@@ -3,6 +3,8 @@ import { join } from "path";
 import { collectSystem } from "./collectors/system.js";
 import { collectPM2 } from "./collectors/pm2.js";
 import { collectConnectivity } from "./collectors/connectivity.js";
+import { collectTopProcesses } from "./collectors/processes.js";
+import { collectServices } from "./collectors/services.js";
 import { authMiddleware } from "./auth.js";
 import statusRouter from "./routes/status.js";
 import systemRouter from "./routes/system.js";
@@ -39,7 +41,7 @@ async function startCollectors() {
   console.log("Starting collectors...");
 
   // Initial collection
-  await Promise.allSettled([collectSystem(), collectPM2(), collectConnectivity()]);
+  await Promise.allSettled([collectSystem(), collectPM2(), collectConnectivity(), collectTopProcesses(), collectServices()]);
   console.log("Initial collection complete");
 
   // System stats every 10s
@@ -48,8 +50,14 @@ async function startCollectors() {
   // PM2 stats every 10s
   setInterval(() => { collectPM2().catch(console.error); }, 10_000);
 
+  // Top processes every 10s
+  setInterval(() => { collectTopProcesses().catch(console.error); }, 10_000);
+
   // Connectivity every 30s
   setInterval(() => { collectConnectivity().catch(console.error); }, 30_000);
+
+  // System services every 30s
+  setInterval(() => { collectServices().catch(console.error); }, 30_000);
 }
 
 app.listen(PORT, () => {

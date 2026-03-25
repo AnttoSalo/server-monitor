@@ -16,6 +16,11 @@
     --red: #f87171;
     --amber: #fbbf24;
     --blue: #60a5fa;
+    --purple: #a78bfa;
+    --pink: #f472b6;
+    --orange: #fb923c;
+    --emerald: #34d399;
+    --sky: #38bdf8;
   }
   * { margin: 0; padding: 0; box-sizing: border-box; }
   body { background: var(--bg); color: var(--text); font-family: 'SF Mono', 'Cascadia Code', 'Fira Code', 'Consolas', monospace; font-size: 12px; min-height: 100vh; }
@@ -51,7 +56,7 @@
   .stat-sub { font-size: 10px; color: var(--muted); }
 
   /* Gauge */
-  .gauge-row { display: flex; gap: 24px; justify-content: center; padding: 8px 0; }
+  .gauge-row { display: flex; gap: 24px; justify-content: center; padding: 8px 0; flex-wrap: wrap; }
   .gauge { text-align: center; }
   .gauge svg { width: 100px; height: 100px; }
   .gauge-label { font-size: 9px; color: var(--muted); margin-top: 4px; text-transform: uppercase; letter-spacing: 0.1em; }
@@ -81,7 +86,7 @@
   .log-controls button:hover { border-color: var(--cyan); }
   .log-viewer { background: #050510; border: 1px solid var(--border); border-radius: 6px; padding: 12px; height: 500px; overflow-y: auto; white-space: pre-wrap; word-break: break-all; font-size: 10px; line-height: 1.6; color: rgba(255,255,255,0.7); }
 
-  /* History charts placeholder */
+  /* History charts */
   .chart-container { position: relative; height: 180px; background: var(--surface); border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }
   .chart-canvas { width: 100%; height: 100%; }
   .chart-title { position: absolute; top: 8px; left: 12px; font-size: 9px; text-transform: uppercase; letter-spacing: 0.1em; color: var(--muted); display: flex; gap: 8px; align-items: baseline; }
@@ -90,6 +95,10 @@
   .period-btn { background: transparent; border: 1px solid var(--border); color: var(--muted); padding: 4px 12px; border-radius: 4px; font-family: inherit; font-size: 10px; cursor: pointer; }
   .period-btn:hover { border-color: rgba(255,255,255,0.2); color: var(--text); }
   .period-btn.active { border-color: var(--cyan); color: var(--cyan); background: rgba(34,211,238,0.08); }
+
+  /* Services */
+  .svc-list { display: flex; flex-wrap: wrap; gap: 8px; }
+  .svc-item { display: flex; align-items: center; gap: 4px; font-size: 11px; padding: 4px 10px; background: rgba(255,255,255,0.02); border-radius: 4px; }
 
   .loading { color: var(--muted); font-size: 11px; padding: 20px; text-align: center; }
 
@@ -123,10 +132,15 @@
   <!-- OVERVIEW -->
   <div class="tab-content active" id="tab-overview">
     <div class="gauge-row" id="gauges"></div>
-    <div class="grid grid-2" style="margin-top:16px">
+    <div id="swap-bar" style="margin-top:12px"></div>
+    <div class="grid grid-3" style="margin-top:16px">
       <div class="card">
         <div class="card-title">Disk Usage</div>
         <div id="disk-list"></div>
+      </div>
+      <div class="card">
+        <div class="card-title">Disk I/O</div>
+        <div id="diskio-stats"></div>
       </div>
       <div class="card">
         <div class="card-title">Network</div>
@@ -140,11 +154,13 @@
         <tbody id="pm2-overview"></tbody>
       </table>
     </div>
+    <div id="services-card" style="margin-top:16px"></div>
   </div>
 
   <!-- PROCESSES -->
   <div class="tab-content" id="tab-processes">
-    <div class="card">
+    <div class="grid grid-2" id="top-processes"></div>
+    <div class="card" style="margin-top:16px">
       <div class="card-title">PM2 Processes</div>
       <table>
         <thead><tr><th>ID</th><th>Name</th><th>Status</th><th>CPU %</th><th>Memory</th><th>Uptime</th><th>Restarts</th></tr></thead>
@@ -155,7 +171,7 @@
 
   <!-- NETWORK -->
   <div class="tab-content" id="tab-network">
-    <div class="grid grid-2">
+    <div class="grid grid-3">
       <div class="card">
         <div class="card-title">Connectivity</div>
         <div id="conn-status" style="margin-bottom:12px"></div>
@@ -164,6 +180,10 @@
       <div class="card">
         <div class="card-title">Details</div>
         <div id="conn-details"></div>
+      </div>
+      <div class="card">
+        <div class="card-title">TCP Connections</div>
+        <div id="tcp-stats"></div>
       </div>
     </div>
   </div>
@@ -182,6 +202,12 @@
       <div class="chart-container"><div class="chart-title"><span class="chart-label">Memory %</span> <span class="chart-stats" id="stats-mem"></span></div><canvas class="chart-canvas" id="chart-mem"></canvas></div>
       <div class="chart-container"><div class="chart-title"><span class="chart-label" id="label-rx">Network RX</span> <span class="chart-stats" id="stats-rx"></span></div><canvas class="chart-canvas" id="chart-rx"></canvas></div>
       <div class="chart-container"><div class="chart-title"><span class="chart-label" id="label-tx">Network TX</span> <span class="chart-stats" id="stats-tx"></span></div><canvas class="chart-canvas" id="chart-tx"></canvas></div>
+      <div class="chart-container"><div class="chart-title"><span class="chart-label">Load Avg (1m)</span> <span class="chart-stats" id="stats-load"></span></div><canvas class="chart-canvas" id="chart-load"></canvas></div>
+      <div class="chart-container"><div class="chart-title"><span class="chart-label">Temperature C</span> <span class="chart-stats" id="stats-temp"></span></div><canvas class="chart-canvas" id="chart-temp"></canvas></div>
+      <div class="chart-container"><div class="chart-title"><span class="chart-label" id="label-diskr">Disk Read</span> <span class="chart-stats" id="stats-diskr"></span></div><canvas class="chart-canvas" id="chart-diskr"></canvas></div>
+      <div class="chart-container"><div class="chart-title"><span class="chart-label" id="label-diskw">Disk Write</span> <span class="chart-stats" id="stats-diskw"></span></div><canvas class="chart-canvas" id="chart-diskw"></canvas></div>
+      <div class="chart-container"><div class="chart-title"><span class="chart-label">Swap %</span> <span class="chart-stats" id="stats-swap"></span></div><canvas class="chart-canvas" id="chart-swap"></canvas></div>
+      <div class="chart-container"><div class="chart-title"><span class="chart-label">TCP Established</span> <span class="chart-stats" id="stats-tcp"></span></div><canvas class="chart-canvas" id="chart-tcp"></canvas></div>
     </div>
   </div>
 
@@ -197,7 +223,6 @@
 </main>
 
 <script>
-// Detect base path — works at root (localhost:3099) or under a subpath (nns.antto.org/monitor)
 const basePath = window.location.pathname.replace(/\/+$/, '').replace(/\/index\.html$/, '');
 const API = window.location.origin + basePath;
 let statusData = null;
@@ -228,10 +253,30 @@ function formatSpeed(kbps) {
   return kbps >= 1024 ? (kbps/1024).toFixed(1) + ' MB/s' : kbps.toFixed(0) + ' KB/s';
 }
 function statusColor(status) {
-  return status === 'online' ? 'var(--green)' : status === 'errored' ? 'var(--amber)' : 'var(--red)';
+  return status === 'online' || status === 'active' ? 'var(--green)' : status === 'errored' || status === 'failed' ? 'var(--red)' : status === 'degraded' ? 'var(--amber)' : 'var(--muted)';
+}
+function svcDotColor(status) {
+  return status === 'active' ? 'var(--green)' : status === 'failed' ? 'var(--red)' : 'var(--muted)';
 }
 
 function makeGauge(pct, label, detail, color) {
+  const r = 38, c = 2 * Math.PI * r, offset = c * (1 - Math.min(pct, 100) / 100);
+  return `<div class="gauge">
+    <svg viewBox="0 0 100 100">
+      <circle cx="50" cy="50" r="${r}" fill="none" stroke="rgba(255,255,255,0.05)" stroke-width="6"/>
+      <circle cx="50" cy="50" r="${r}" fill="none" stroke="${color}" stroke-width="6"
+        stroke-dasharray="${c}" stroke-dashoffset="${offset}" stroke-linecap="round"
+        transform="rotate(-90 50 50)" style="transition:stroke-dashoffset 0.5s"/>
+      <text x="50" y="48" text-anchor="middle" fill="${color}" font-size="18" font-weight="700" font-family="inherit">${pct >= 100 ? Math.round(pct) : Math.round(pct) + '%'}</text>
+      <text x="50" y="62" text-anchor="middle" fill="rgba(255,255,255,0.4)" font-size="8" font-family="inherit">${detail}</text>
+    </svg>
+    <div class="gauge-label">${label}</div>
+  </div>`;
+}
+
+function makeTempGauge(tempC) {
+  const color = tempC > 80 ? 'var(--red)' : tempC > 60 ? 'var(--amber)' : 'var(--green)';
+  const pct = Math.min(tempC / 100 * 100, 100);
   const r = 38, c = 2 * Math.PI * r, offset = c * (1 - pct / 100);
   return `<div class="gauge">
     <svg viewBox="0 0 100 100">
@@ -239,10 +284,10 @@ function makeGauge(pct, label, detail, color) {
       <circle cx="50" cy="50" r="${r}" fill="none" stroke="${color}" stroke-width="6"
         stroke-dasharray="${c}" stroke-dashoffset="${offset}" stroke-linecap="round"
         transform="rotate(-90 50 50)" style="transition:stroke-dashoffset 0.5s"/>
-      <text x="50" y="48" text-anchor="middle" fill="${color}" font-size="18" font-weight="700" font-family="inherit">${Math.round(pct)}%</text>
-      <text x="50" y="62" text-anchor="middle" fill="rgba(255,255,255,0.4)" font-size="8" font-family="inherit">${detail}</text>
+      <text x="50" y="48" text-anchor="middle" fill="${color}" font-size="16" font-weight="700" font-family="inherit">${Math.round(tempC)}°</text>
+      <text x="50" y="62" text-anchor="middle" fill="rgba(255,255,255,0.4)" font-size="8" font-family="inherit">celsius</text>
     </svg>
-    <div class="gauge-label">${label}</div>
+    <div class="gauge-label">Temp</div>
   </div>`;
 }
 
@@ -254,11 +299,35 @@ function renderOverview(data) {
   const diskPct = s.disk[0]?.percent || 0;
   const diskColor = diskPct > 90 ? 'var(--red)' : diskPct > 75 ? 'var(--amber)' : 'var(--cyan)';
 
-  document.getElementById('gauges').innerHTML =
-    makeGauge(s.cpu, 'CPU', '', cpuColor) +
+  // Load gauge: percentage = load1 / cores * 100
+  const cores = s.cpuCores || 1;
+  const loadPct = Math.round(s.loadAvg.load1 / cores * 100);
+  const loadColor = loadPct > 100 ? 'var(--red)' : loadPct > 70 ? 'var(--amber)' : 'var(--purple)';
+  const loadDetail = s.loadAvg.load1.toFixed(2) + ' / ' + s.loadAvg.load5.toFixed(2) + ' / ' + s.loadAvg.load15.toFixed(2);
+
+  let gaugesHtml =
+    makeGauge(s.cpu, 'CPU', cores + ' cores', cpuColor) +
     makeGauge(s.memory.percent, 'RAM', s.memory.used + '/' + s.memory.total + ' GB', memColor) +
     makeGauge(diskPct, 'Disk', s.disk[0] ? s.disk[0].mount : '', diskColor);
+  if (s.temperature) gaugesHtml += makeTempGauge(s.temperature.maxC);
+  gaugesHtml += makeGauge(loadPct, 'Load', loadDetail, loadColor);
+  document.getElementById('gauges').innerHTML = gaugesHtml;
 
+  // Swap bar
+  const swapEl = document.getElementById('swap-bar');
+  if (s.swap && s.swap.total > 0) {
+    swapEl.innerHTML = `<div class="card" style="padding:10px 16px">
+      <div style="display:flex;justify-content:space-between;margin-bottom:4px;font-size:10px">
+        <span style="color:var(--muted);text-transform:uppercase;letter-spacing:0.1em;font-size:9px">Swap</span>
+        <span style="color:var(--muted)">${s.swap.used}/${s.swap.total} GB (${s.swap.percent}%)</span>
+      </div>
+      <div class="bar-bg"><div class="bar-fill" style="width:${s.swap.percent}%;background:${s.swap.percent>80?'var(--red)':s.swap.percent>50?'var(--amber)':'var(--pink)'}"></div></div>
+    </div>`;
+  } else {
+    swapEl.innerHTML = '';
+  }
+
+  // Disk usage
   document.getElementById('disk-list').innerHTML = s.disk.map(d => `
     <div style="margin-bottom:8px">
       <div style="display:flex;justify-content:space-between;margin-bottom:3px">
@@ -267,10 +336,31 @@ function renderOverview(data) {
       <div class="bar-bg"><div class="bar-fill" style="width:${d.percent}%;background:${d.percent>90?'var(--red)':d.percent>75?'var(--amber)':'var(--cyan)'}"></div></div>
     </div>`).join('');
 
+  // Disk I/O
+  let dioHtml = `<div style="display:flex;gap:24px;padding:8px 0">
+    <div><span style="color:var(--emerald)">R</span> ${formatSpeed(s.diskIO.readKBps)}</div>
+    <div><span style="color:var(--red)">W</span> ${formatSpeed(s.diskIO.writeKBps)}</div>
+  </div>`;
+  if (s.diskIO.devices && s.diskIO.devices.length > 1) {
+    dioHtml += '<div style="margin-top:8px;border-top:1px solid var(--border);padding-top:8px">';
+    s.diskIO.devices.forEach(d => {
+      dioHtml += `<div style="display:flex;justify-content:space-between;padding:2px 0;font-size:10px">
+        <span style="color:var(--muted)">${d.device}</span>
+        <span>R ${formatSpeed(d.readKBps)} <span style="margin-left:8px">W ${formatSpeed(d.writeKBps)}</span></span>
+      </div>`;
+    });
+    dioHtml += '</div>';
+  }
+  document.getElementById('diskio-stats').innerHTML = dioHtml;
+
+  // Network
   let netHtml = `<div style="display:flex;gap:24px;padding:8px 0">
       <div><span style="color:var(--green)">&#x2193;</span> ${formatSpeed(s.network.rxKBps)}</div>
       <div><span style="color:var(--amber)">&#x2191;</span> ${formatSpeed(s.network.txKBps)}</div>
     </div>`;
+  if (s.tcpConnections) {
+    netHtml += `<div style="font-size:10px;color:var(--muted);padding:2px 0">TCP: ${s.tcpConnections.established} est / ${s.tcpConnections.listening} listen</div>`;
+  }
   if (s.network.interfaces && s.network.interfaces.length > 1) {
     netHtml += '<div style="margin-top:8px;border-top:1px solid var(--border);padding-top:8px">';
     s.network.interfaces.forEach(iface => {
@@ -283,6 +373,7 @@ function renderOverview(data) {
   }
   document.getElementById('network-stats').innerHTML = netHtml;
 
+  // PM2 processes
   document.getElementById('pm2-overview').innerHTML = data.pm2.processes
     .filter(p => p.name !== 'pm2-logrotate')
     .map(p => `<tr>
@@ -293,6 +384,17 @@ function renderOverview(data) {
       <td style="color:var(--muted)">${formatUptime(p.uptimeMs)}</td>
       <td style="color:var(--muted)">${p.restarts}</td>
     </tr>`).join('');
+
+  // Services
+  const svcCard = document.getElementById('services-card');
+  if (data.services && data.services.length > 0) {
+    svcCard.innerHTML = `<div class="card">
+      <div class="card-title">Services</div>
+      <div class="svc-list">${data.services.map(s => `<div class="svc-item"><span class="status-dot" style="background:${svcDotColor(s.status)}"></span>${s.name}</div>`).join('')}</div>
+    </div>`;
+  } else {
+    svcCard.innerHTML = '';
+  }
 
   // Header
   const conn = data.connectivity;
@@ -313,6 +415,22 @@ function renderProcesses(data) {
     <td style="color:var(--muted)">${formatUptime(p.uptimeMs)}</td>
     <td style="color:var(--muted)">${p.restarts}</td>
   </tr>`).join('');
+
+  // Top processes
+  const tp = data.topProcesses || { byCpu: [], byMem: [] };
+  function renderTopTable(title, procs) {
+    if (procs.length === 0) return '';
+    return `<div class="card"><div class="card-title">${title}</div><table>
+      <thead><tr><th>PID</th><th>User</th><th>CPU %</th><th>Mem %</th><th>RSS</th><th>Command</th></tr></thead>
+      <tbody>${procs.map(p => `<tr>
+        <td style="color:var(--muted)">${p.pid}</td><td>${p.user}</td>
+        <td>${p.cpu.toFixed(1)}</td><td>${p.mem.toFixed(1)}</td>
+        <td style="color:var(--muted)">${Math.round(p.rssKB/1024)} MB</td>
+        <td style="color:var(--muted);max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${p.command}</td>
+      </tr>`).join('')}</tbody></table></div>`;
+  }
+  document.getElementById('top-processes').innerHTML =
+    renderTopTable('Top by CPU', tp.byCpu) + renderTopTable('Top by Memory', tp.byMem);
 }
 
 function renderNetwork(data) {
@@ -346,7 +464,6 @@ function renderNetwork(data) {
   if (ifaces.length > 0) {
     detailsHtml += '<div style="margin-top:8px;border-top:1px solid var(--border);padding-top:8px"><div style="font-size:9px;text-transform:uppercase;letter-spacing:0.1em;color:var(--muted);margin-bottom:6px">Interfaces</div>';
     ifaces.forEach(iface => {
-      const total = iface.rxKBps + iface.txKBps;
       detailsHtml += `<div style="display:flex;justify-content:space-between;padding:3px 0;font-size:11px">
         <span>${iface.name}</span>
         <span style="color:var(--muted)">&#x2193; ${formatSpeed(iface.rxKBps)} &nbsp; &#x2191; ${formatSpeed(iface.txKBps)}</span>
@@ -356,14 +473,20 @@ function renderNetwork(data) {
   }
   detailsHtml += '</div>';
   document.getElementById('conn-details').innerHTML = detailsHtml;
+
+  // TCP connections
+  const tcp = statusData.system.tcpConnections || {};
+  document.getElementById('tcp-stats').innerHTML = `<div style="padding:8px 0">
+    <div style="display:flex;gap:20px;flex-wrap:wrap">
+      <div><div style="font-size:24px;font-weight:700;color:var(--cyan)">${tcp.established || 0}</div><div style="font-size:9px;color:var(--muted);text-transform:uppercase">Established</div></div>
+      <div><div style="font-size:24px;font-weight:700;color:var(--green)">${tcp.listening || 0}</div><div style="font-size:9px;color:var(--muted);text-transform:uppercase">Listening</div></div>
+      <div><div style="font-size:24px;font-weight:700;color:var(--amber)">${tcp.timeWait || 0}</div><div style="font-size:9px;color:var(--muted);text-transform:uppercase">Time Wait</div></div>
+    </div>
+    <div style="margin-top:8px;font-size:10px;color:var(--muted)">Total: ${tcp.total || 0}</div>
+  </div>`;
 }
 
 // --- Charts ---
-function formatChartVal(v, isBandwidth) {
-  if (isBandwidth) return v >= 1024 ? (v/1024).toFixed(1) + ' MB/s' : v.toFixed(0) + ' KB/s';
-  return v.toFixed(0) + '%';
-}
-
 function drawChart(canvasId, entries, key, color, isBandwidth) {
   const canvas = document.getElementById(canvasId);
   const ctx = canvas.getContext('2d');
@@ -376,23 +499,23 @@ function drawChart(canvasId, entries, key, color, isBandwidth) {
   let values = entries.map(e => e[key] ?? 0);
   if (values.length < 2) { ctx.fillStyle = 'rgba(255,255,255,0.2)'; ctx.font = '11px monospace'; ctx.fillText('Waiting for data...', w/2 - 50, h/2); return; }
 
-  // Auto-scale bandwidth to MB/s if needed
-  let unit = isBandwidth ? 'KB/s' : '%';
+  let unit = isBandwidth ? 'KB/s' : '';
   const rawMax = Math.max(...values, 0);
   if (isBandwidth && rawMax >= 1024) {
     values = values.map(v => v / 1024);
     unit = 'MB/s';
   }
 
-  // Update chart label with unit
   const labelId = 'label-' + canvasId.replace('chart-', '');
   const labelEl = document.getElementById(labelId);
-  if (labelEl && isBandwidth) labelEl.textContent = 'Network ' + canvasId.replace('chart-', '').toUpperCase() + ' (' + unit + ')';
+  if (labelEl && isBandwidth) {
+    const prefix = canvasId.includes('diskr') ? 'Disk Read' : canvasId.includes('diskw') ? 'Disk Write' : 'Network ' + canvasId.replace('chart-', '').toUpperCase();
+    labelEl.textContent = prefix + ' (' + unit + ')';
+  }
 
   const max = Math.max(...values, isBandwidth ? 0.1 : 1) * 1.1;
   const plotW = w - pad.left - pad.right, plotH = h - pad.top - pad.bottom;
 
-  // Grid
   ctx.strokeStyle = 'rgba(255,255,255,0.04)'; ctx.lineWidth = 0.5;
   for (let i = 0; i <= 4; i++) {
     const y = pad.top + (plotH / 4) * i;
@@ -402,7 +525,6 @@ function drawChart(canvasId, entries, key, color, isBandwidth) {
     ctx.fillText(axisVal >= 10 ? Math.round(axisVal).toString() : axisVal.toFixed(1), pad.left - 4, y + 3);
   }
 
-  // Area
   ctx.beginPath();
   values.forEach((v, i) => {
     const x = pad.left + (i / (values.length - 1)) * plotW;
@@ -414,7 +536,6 @@ function drawChart(canvasId, entries, key, color, isBandwidth) {
   ctx.lineTo(pad.left + plotW, pad.top + plotH); ctx.lineTo(pad.left, pad.top + plotH); ctx.closePath();
   ctx.fillStyle = gradient; ctx.fill();
 
-  // Line
   ctx.beginPath();
   values.forEach((v, i) => {
     const x = pad.left + (i / (values.length - 1)) * plotW;
@@ -423,7 +544,6 @@ function drawChart(canvasId, entries, key, color, isBandwidth) {
   });
   ctx.strokeStyle = color; ctx.lineWidth = 1.5; ctx.stroke();
 
-  // Latest value dot + label
   const lastVal = values[values.length - 1];
   const lastX = pad.left + plotW;
   const lastY = pad.top + plotH - (lastVal / max) * plotH;
@@ -447,7 +567,7 @@ function computeStats(entries, key) {
 
 function formatStatsText(stats, isBandwidth) {
   if (!stats) return '';
-  const fmt = v => isBandwidth ? formatSpeed(v) : v.toFixed(0) + '%';
+  const fmt = v => isBandwidth ? formatSpeed(v) : v.toFixed(1);
   return 'avg: ' + fmt(stats.avg) + ' | peak: ' + fmt(stats.peak);
 }
 
@@ -456,22 +576,34 @@ async function loadHistory() {
   try {
     const res = await fetch(API + '/system/history?range=' + historyRange);
     const data = await res.json();
-    drawChart('chart-cpu', data.entries, 'cpu', '#22d3ee', false);
-    drawChart('chart-mem', data.entries, 'memPercent', '#4ade80', false);
-    drawChart('chart-rx', data.entries, 'rxKBps', '#60a5fa', true);
-    drawChart('chart-tx', data.entries, 'txKBps', '#fbbf24', true);
+    const e = data.entries;
 
-    // Stats in chart headers
+    drawChart('chart-cpu', e, 'cpu', '#22d3ee', false);
+    drawChart('chart-mem', e, 'memPercent', '#4ade80', false);
+    drawChart('chart-rx', e, 'rxKBps', '#60a5fa', true);
+    drawChart('chart-tx', e, 'txKBps', '#fbbf24', true);
+    drawChart('chart-load', e, 'load1', '#a78bfa', false);
+    drawChart('chart-temp', e, 'tempC', '#fb923c', false);
+    drawChart('chart-diskr', e, 'diskReadKBps', '#34d399', true);
+    drawChart('chart-diskw', e, 'diskWriteKBps', '#f87171', true);
+    drawChart('chart-swap', e, 'swapPercent', '#f472b6', false);
+    drawChart('chart-tcp', e, 'tcpEstablished', '#38bdf8', false);
+
     const el = id => document.getElementById(id);
-    el('stats-cpu').textContent = formatStatsText(computeStats(data.entries, 'cpu'), false);
-    el('stats-mem').textContent = formatStatsText(computeStats(data.entries, 'memPercent'), false);
-    el('stats-rx').textContent = formatStatsText(computeStats(data.entries, 'rxKBps'), true);
-    el('stats-tx').textContent = formatStatsText(computeStats(data.entries, 'txKBps'), true);
+    el('stats-cpu').textContent = formatStatsText(computeStats(e, 'cpu'), false);
+    el('stats-mem').textContent = formatStatsText(computeStats(e, 'memPercent'), false);
+    el('stats-rx').textContent = formatStatsText(computeStats(e, 'rxKBps'), true);
+    el('stats-tx').textContent = formatStatsText(computeStats(e, 'txKBps'), true);
+    el('stats-load').textContent = formatStatsText(computeStats(e, 'load1'), false);
+    el('stats-temp').textContent = formatStatsText(computeStats(e, 'tempC'), false);
+    el('stats-diskr').textContent = formatStatsText(computeStats(e, 'diskReadKBps'), true);
+    el('stats-diskw').textContent = formatStatsText(computeStats(e, 'diskWriteKBps'), true);
+    el('stats-swap').textContent = formatStatsText(computeStats(e, 'swapPercent'), false);
+    el('stats-tcp').textContent = formatStatsText(computeStats(e, 'tcpEstablished'), false);
 
-    // Bandwidth totals (each entry ~60s interval)
-    const totalRx = data.entries.reduce((s, e) => s + (e.rxKBps || 0) * 60, 0);
-    const totalTx = data.entries.reduce((s, e) => s + (e.txKBps || 0) * 60, 0);
-    el('bandwidth-totals').innerHTML = data.entries.length > 0
+    const totalRx = e.reduce((s, x) => s + (x.rxKBps || 0) * 60, 0);
+    const totalTx = e.reduce((s, x) => s + (x.txKBps || 0) * 60, 0);
+    el('bandwidth-totals').innerHTML = e.length > 0
       ? `<span>&#x2193; RX: <span style="color:var(--blue)">${formatBandwidthTotal(totalRx)}</span></span>
          <span>&#x2191; TX: <span style="color:var(--amber)">${formatBandwidthTotal(totalTx)}</span></span>
          <span>Combined: <span style="color:var(--text)">${formatBandwidthTotal(totalRx + totalTx)}</span></span>`
@@ -512,7 +644,6 @@ async function poll() {
     renderProcesses(statusData);
     renderNetwork(statusData);
 
-    // Populate log dropdown
     const sel = document.getElementById('log-process');
     const current = sel.value;
     sel.innerHTML = statusData.pm2.processes.filter(p => p.name !== 'pm2-logrotate').map(p =>
@@ -528,7 +659,6 @@ loadHistory();
 setInterval(poll, 10000);
 setInterval(loadHistory, 60000);
 
-// Keyboard: 1-5 to switch tabs
 document.addEventListener('keydown', e => {
   const idx = parseInt(e.key) - 1;
   const tabs = document.querySelectorAll('.tab');

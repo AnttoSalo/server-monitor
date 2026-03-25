@@ -13,7 +13,7 @@ const RANGE_MAP: Record<string, number> = {
 router.get("/", (_req, res) => {
   const stats = getLastStats();
   if (!stats) {
-    res.json({ cpu: 0, memory: { used: 0, total: 0, percent: 0 }, disk: [], network: { rxKBps: 0, txKBps: 0, interfaces: [] } });
+    res.json({ cpu: 0, cpuCores: 1, memory: { used: 0, total: 0, percent: 0 }, swap: { used: 0, total: 0, percent: 0 }, disk: [], diskIO: { readKBps: 0, writeKBps: 0, devices: [] }, network: { rxKBps: 0, txKBps: 0, interfaces: [] }, loadAvg: { load1: 0, load5: 0, load15: 0, runProcs: 0, totalProcs: 0 }, temperature: null, tcpConnections: { established: 0, listening: 0, timeWait: 0, total: 0 } });
     return;
   }
   res.json(stats);

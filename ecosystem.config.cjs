@@ -8,6 +8,7 @@ module.exports = {
         NODE_ENV: "production",
         PING_TARGETS: "1.1.1.1,8.8.8.8,google.com",
         HISTORY_RETENTION_DAYS: 7,
+        MONITOR_SERVICES: "ssh,nginx,cloudflared",
       },
       max_memory_restart: "100M",
     },
