@@ -33,7 +33,8 @@ jobs:
             cd /srv/dev/server-monitor
             export NVM_DIR="$HOME/.nvm"
             [ -s "$NVM_DIR/nvm.sh" ] && . "$NVM_DIR/nvm.sh"
-            git pull origin main
+            git fetch origin main
+            git reset --hard origin/main
             npm install
             npm run build
             npm prune --production
