@@ -4,6 +4,7 @@ import { loadJson, saveJson, pruneByAge } from "../store.js";
 
 const HISTORY_FILE = "connectivity.json";
 const PERSIST_INTERVAL_MS = 300_000; // 5 min
+const HISTORY_ENTRY_INTERVAL_MS = 60_000; // add entry every 60s
 const RETENTION_MS = 86_400_000; // 24h
 
 let lastStatus: ConnectivityStatus = {
@@ -12,7 +13,16 @@ let lastStatus: ConnectivityStatus = {
   wanIp: null,
   lastChecked: new Date().toISOString(),
 };
+let lastEntryAt = 0;
 let lastPersistedAt = 0;
+
+// In-memory history buffer
+let historyBuffer: ConnectivityHistoryEntry[] | null = null;
+
+async function ensureHistoryLoaded(): Promise<ConnectivityHistoryEntry[]> {
+  if (!historyBuffer) historyBuffer = await loadJson<ConnectivityHistoryEntry[]>(HISTORY_FILE, []);
+  return historyBuffer;
+}
 
 const TARGETS = (process.env.PING_TARGETS || "1.1.1.1,8.8.8.8,google.com").split(",");
 
@@ -21,11 +31,7 @@ function tcpPing(host: string, port: number, timeoutMs: number): Promise<number>
     const start = Date.now();
     const socket = new net.Socket();
     socket.setTimeout(timeoutMs);
-    socket.on("connect", () => {
-      const latency = Date.now() - start;
-      socket.destroy();
-      resolve(latency);
-    });
+    socket.on("connect", () => { const latency = Date.now() - start; socket.destroy(); resolve(latency); });
     socket.on("timeout", () => { socket.destroy(); reject(new Error("timeout")); });
     socket.on("error", (err) => { socket.destroy(); reject(err); });
     socket.connect(port, host);
@@ -63,18 +69,21 @@ export async function collectConnectivity(): Promise<ConnectivityStatus> {
   if (reachableCount === 0) status = "offline";
   else if (reachableCount < targets.length) status = "degraded";
 
-  lastStatus = {
-    status,
-    targets,
-    wanIp,
-    lastChecked: new Date().toISOString(),
-  };
+  lastStatus = { status, targets, wanIp, lastChecked: new Date().toISOString() };
 
-  // Persist every 5 min
   const now = Date.now();
+  // Add history entry every 60s
+  if (now - lastEntryAt >= HISTORY_ENTRY_INTERVAL_MS) {
+    lastEntryAt = now;
+    const buf = await ensureHistoryLoaded();
+    buf.push({ timestamp: new Date().toISOString(), targets });
+    historyBuffer = pruneByAge(buf, RETENTION_MS);
+  }
+
+  // Flush to disk every 5 min
   if (now - lastPersistedAt >= PERSIST_INTERVAL_MS) {
     lastPersistedAt = now;
-    persistHistory(targets).catch(() => {});
+    if (historyBuffer) saveJson(HISTORY_FILE, historyBuffer).catch(() => {});
   }
 
   return lastStatus;
@@ -84,15 +93,8 @@ export function getLastConnectivity(): ConnectivityStatus {
   return lastStatus;
 }
 
-async function persistHistory(targets: PingTarget[]): Promise<void> {
-  const entries = await loadJson<ConnectivityHistoryEntry[]>(HISTORY_FILE, []);
-  entries.push({ timestamp: new Date().toISOString(), targets });
-  const pruned = pruneByAge(entries, RETENTION_MS);
-  await saveJson(HISTORY_FILE, pruned);
-}
-
 export async function getConnectivityHistory(rangeMs: number): Promise<ConnectivityHistoryEntry[]> {
-  const entries = await loadJson<ConnectivityHistoryEntry[]>(HISTORY_FILE, []);
+  const buf = await ensureHistoryLoaded();
   const cutoff = Date.now() - rangeMs;
-  return entries.filter((e) => new Date(e.timestamp).getTime() > cutoff);
+  return buf.filter((e) => new Date(e.timestamp).getTime() > cutoff);
 }

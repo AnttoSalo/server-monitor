@@ -40,7 +40,7 @@
   .tab:hover { color: var(--text); }
   .tab.active { color: var(--cyan); border-color: var(--cyan); }
 
-  .content { padding: 20px 24px; }
+  .content { padding: 20px 24px; padding-bottom: 40px; }
   .tab-content { display: none; }
   .tab-content.active { display: block; }
 
@@ -102,6 +102,14 @@
 
   .loading { color: var(--muted); font-size: 11px; padding: 20px; text-align: center; }
 
+  /* Alert animations */
+  @keyframes pulse-glow {
+    0%, 100% { filter: drop-shadow(0 0 4px currentColor); }
+    50% { filter: drop-shadow(0 0 12px currentColor); }
+  }
+  .alert-critical svg circle:nth-child(2) { animation: pulse-glow 2s ease-in-out infinite; }
+  .alert-warning svg circle:nth-child(2) { animation: pulse-glow 4s ease-in-out infinite; }
+
   @media (max-width: 768px) {
     .grid-2, .grid-3, .grid-4 { grid-template-columns: 1fr; }
     .gauge-row { flex-wrap: wrap; }
@@ -117,6 +125,7 @@
     <span id="hostname">—</span>
     <span id="uptime-display">—</span>
     <span id="last-updated">—</span>
+    <span id="updates-badge"></span>
   </div>
 </header>
 
@@ -155,6 +164,8 @@
       </table>
     </div>
     <div id="services-card" style="margin-top:16px"></div>
+    <div id="users-card" style="margin-top:16px"></div>
+    <div id="sysinfo-card" style="margin-top:16px"></div>
   </div>
 
   <!-- PROCESSES -->
@@ -167,11 +178,12 @@
         <tbody id="pm2-full"></tbody>
       </table>
     </div>
+    <div id="docker-card" style="margin-top:16px"></div>
   </div>
 
   <!-- NETWORK -->
   <div class="tab-content" id="tab-network">
-    <div class="grid grid-3">
+    <div class="grid grid-2">
       <div class="card">
         <div class="card-title">Connectivity</div>
         <div id="conn-status" style="margin-bottom:12px"></div>
@@ -185,6 +197,14 @@
         <div class="card-title">TCP Connections</div>
         <div id="tcp-stats"></div>
       </div>
+      <div class="card">
+        <div class="card-title">Listening Ports</div>
+        <div id="listening-ports"></div>
+      </div>
+    </div>
+    <div class="card" style="margin-top:16px">
+      <div class="card-title">Connectivity History (Latency)</div>
+      <div class="chart-container" style="height:200px"><canvas class="chart-canvas" id="chart-conn-history"></canvas></div>
     </div>
   </div>
 
@@ -222,10 +242,14 @@
   </div>
 </main>
 
+<footer id="self-monitor-footer" style="position:fixed;bottom:0;left:0;right:0;padding:6px 24px;background:var(--bg);border-top:1px solid var(--border);font-size:9px;color:rgba(255,255,255,0.25);display:flex;gap:16px"></footer>
+
 <script>
 const basePath = window.location.pathname.replace(/\/+$/, '').replace(/\/index\.html$/, '');
 const API = window.location.origin + basePath;
 let statusData = null;
+
+const KNOWN_PORTS = {22:'SSH',25:'SMTP',53:'DNS',80:'HTTP',443:'HTTPS',3000:'Dev',3306:'MySQL',5432:'Postgres',6379:'Redis',8080:'HTTP-Alt',8443:'HTTPS-Alt',27017:'MongoDB'};
 
 // --- Tabs ---
 document.querySelectorAll('.tab').forEach(tab => {
@@ -259,9 +283,10 @@ function svcDotColor(status) {
   return status === 'active' ? 'var(--green)' : status === 'failed' ? 'var(--red)' : 'var(--muted)';
 }
 
-function makeGauge(pct, label, detail, color) {
+function makeGauge(pct, label, detail, color, alertClass) {
   const r = 38, c = 2 * Math.PI * r, offset = c * (1 - Math.min(pct, 100) / 100);
-  return `<div class="gauge">
+  const wrapClass = alertClass ? 'gauge ' + alertClass : 'gauge';
+  return `<div class="${wrapClass}">
     <svg viewBox="0 0 100 100">
       <circle cx="50" cy="50" r="${r}" fill="none" stroke="rgba(255,255,255,0.05)" stroke-width="6"/>
       <circle cx="50" cy="50" r="${r}" fill="none" stroke="${color}" stroke-width="6"
@@ -299,6 +324,11 @@ function renderOverview(data) {
   const diskPct = s.disk[0]?.percent || 0;
   const diskColor = diskPct > 90 ? 'var(--red)' : diskPct > 75 ? 'var(--amber)' : 'var(--cyan)';
 
+  // Alert classes for gauges
+  const cpuAlert = s.cpu > 90 ? 'alert-critical' : s.cpu > 80 ? 'alert-warning' : '';
+  const memAlert = s.memory.percent > 85 ? 'alert-critical' : s.memory.percent > 80 ? 'alert-warning' : '';
+  const diskAlert = diskPct > 90 ? 'alert-critical' : diskPct > 75 ? 'alert-warning' : '';
+
   // Load gauge: percentage = load1 / cores * 100
   const cores = s.cpuCores || 1;
   const loadPct = Math.round(s.loadAvg.load1 / cores * 100);
@@ -306,9 +336,9 @@ function renderOverview(data) {
   const loadDetail = s.loadAvg.load1.toFixed(2) + ' / ' + s.loadAvg.load5.toFixed(2) + ' / ' + s.loadAvg.load15.toFixed(2);
 
   let gaugesHtml =
-    makeGauge(s.cpu, 'CPU', cores + ' cores', cpuColor) +
-    makeGauge(s.memory.percent, 'RAM', s.memory.used + '/' + s.memory.total + ' GB', memColor) +
-    makeGauge(diskPct, 'Disk', s.disk[0] ? s.disk[0].mount : '', diskColor);
+    makeGauge(s.cpu, 'CPU', cores + ' cores', cpuColor, cpuAlert) +
+    makeGauge(s.memory.percent, 'RAM', s.memory.used + '/' + s.memory.total + ' GB', memColor, memAlert) +
+    makeGauge(diskPct, 'Disk', s.disk[0] ? s.disk[0].mount : '', diskColor, diskAlert);
   if (s.temperature) gaugesHtml += makeTempGauge(s.temperature.maxC);
   gaugesHtml += makeGauge(loadPct, 'Load', loadDetail, loadColor);
   document.getElementById('gauges').innerHTML = gaugesHtml;
@@ -396,8 +426,72 @@ function renderOverview(data) {
     svcCard.innerHTML = '';
   }
 
-  // Header
+  // Logged-in users
+  const usersCard = document.getElementById('users-card');
+  if (data.users && data.users.length > 0) {
+    usersCard.innerHTML = `<div class="card">
+      <div class="card-title">Logged-in Users</div>
+      <table>
+        <thead><tr><th>User</th><th>Terminal</th><th>From</th><th>Login Time</th></tr></thead>
+        <tbody>${data.users.map(u => `<tr>
+          <td>${u.user || u.name || '—'}</td>
+          <td style="color:var(--muted)">${u.terminal || u.tty || '—'}</td>
+          <td style="color:var(--muted)">${u.host || u.from || '—'}</td>
+          <td style="color:var(--muted)">${u.login || u.time || '—'}</td>
+        </tr>`).join('')}</tbody>
+      </table>
+    </div>`;
+  } else {
+    usersCard.innerHTML = '';
+  }
+
+  // System info
+  const sysinfoCard = document.getElementById('sysinfo-card');
+  if (data.systemInfo || m) {
+    const si = data.systemInfo || {};
+    let infoHtml = '<div class="card"><div class="card-title">System Info</div><div style="display:grid;grid-template-columns:1fr 1fr;gap:4px 16px;font-size:11px">';
+    if (m.hostname) infoHtml += `<span style="color:var(--muted)">Hostname</span><span>${m.hostname}</span>`;
+    if (si.os || m.os) infoHtml += `<span style="color:var(--muted)">OS</span><span>${si.os || m.os || '—'}</span>`;
+    if (si.kernel) infoHtml += `<span style="color:var(--muted)">Kernel</span><span>${si.kernel}</span>`;
+    if (si.arch || m.arch) infoHtml += `<span style="color:var(--muted)">Arch</span><span>${si.arch || m.arch || '—'}</span>`;
+    if (s.cpuCores) infoHtml += `<span style="color:var(--muted)">CPU Cores</span><span>${s.cpuCores}</span>`;
+    if (si.cpuModel) infoHtml += `<span style="color:var(--muted)">CPU Model</span><span>${si.cpuModel}</span>`;
+    if (s.memory && s.memory.total) infoHtml += `<span style="color:var(--muted)">Total RAM</span><span>${s.memory.total} GB</span>`;
+    if (m.uptime) infoHtml += `<span style="color:var(--muted)">Uptime</span><span>${formatOsUptime(m.uptime)}</span>`;
+    if (si.nodeVersion) infoHtml += `<span style="color:var(--muted)">Node.js</span><span>${si.nodeVersion}</span>`;
+    infoHtml += '</div></div>';
+    sysinfoCard.innerHTML = infoHtml;
+  } else {
+    sysinfoCard.innerHTML = '';
+  }
+
+  // Package updates badge
+  const updatesBadge = document.getElementById('updates-badge');
+  if (data.packageUpdates && data.packageUpdates.count > 0) {
+    const cnt = data.packageUpdates.count;
+    const hasSecurity = data.packageUpdates.security && data.packageUpdates.security > 0;
+    const badgeColor = hasSecurity ? 'var(--red)' : 'var(--amber)';
+    const label = hasSecurity ? cnt + ' updates (' + data.packageUpdates.security + ' security)' : cnt + ' updates';
+    updatesBadge.innerHTML = `<span style="background:${badgeColor};color:#000;padding:1px 6px;border-radius:3px;font-size:8px;font-weight:600">${label}</span>`;
+  } else {
+    updatesBadge.innerHTML = '';
+  }
+
+  // Self-monitor footer
+  const footer = document.getElementById('self-monitor-footer');
+  const footerParts = [];
+  footerParts.push('Poll: ' + new Date().toLocaleTimeString());
+  if (m.hostname) footerParts.push('Host: ' + m.hostname);
+  if (m.uptime) footerParts.push('Up: ' + formatOsUptime(m.uptime));
+  footerParts.push('CPU: ' + s.cpu.toFixed(1) + '%');
+  footerParts.push('RAM: ' + s.memory.percent.toFixed(1) + '%');
+  if (s.swap && s.swap.total > 0) footerParts.push('Swap: ' + s.swap.percent + '%');
+  if (s.temperature) footerParts.push('Temp: ' + Math.round(s.temperature.maxC) + '\u00B0C');
   const conn = data.connectivity;
+  if (conn) footerParts.push('Net: ' + conn.status);
+  footer.innerHTML = footerParts.map(p => '<span>' + p + '</span>').join('');
+
+  // Header
   document.getElementById('connectivity-badge').innerHTML =
     `<span class="status-dot ${conn.status}"></span>${conn.status}`;
   document.getElementById('hostname').textContent = m.hostname;
@@ -431,6 +525,32 @@ function renderProcesses(data) {
   }
   document.getElementById('top-processes').innerHTML =
     renderTopTable('Top by CPU', tp.byCpu) + renderTopTable('Top by Memory', tp.byMem);
+
+  // Docker containers
+  const dockerCard = document.getElementById('docker-card');
+  if (data.docker && data.docker.length > 0) {
+    const dockerStatusColor = st => {
+      if (st === 'running') return 'var(--green)';
+      if (st === 'exited' || st === 'dead') return 'var(--red)';
+      if (st === 'paused' || st === 'restarting') return 'var(--amber)';
+      return 'var(--muted)';
+    };
+    dockerCard.innerHTML = `<div class="card">
+      <div class="card-title">Docker Containers</div>
+      <table>
+        <thead><tr><th>Name</th><th>Image</th><th>Status</th><th>Ports</th><th>Created</th></tr></thead>
+        <tbody>${data.docker.map(c => `<tr>
+          <td>${c.name || c.Names || '—'}</td>
+          <td style="color:var(--muted)">${c.image || c.Image || '—'}</td>
+          <td><span class="status-badge"><span class="status-dot" style="background:${dockerStatusColor(c.state || c.State || c.status || '')}"></span>${c.status || c.Status || c.state || c.State || '—'}</span></td>
+          <td style="color:var(--muted);font-size:10px;max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${c.ports || c.Ports || '—'}</td>
+          <td style="color:var(--muted)">${c.created || c.CreatedAt || '—'}</td>
+        </tr>`).join('')}</tbody>
+      </table>
+    </div>`;
+  } else {
+    dockerCard.innerHTML = '';
+  }
 }
 
 function renderNetwork(data) {
@@ -484,6 +604,34 @@ function renderNetwork(data) {
     </div>
     <div style="margin-top:8px;font-size:10px;color:var(--muted)">Total: ${tcp.total || 0}</div>
   </div>`;
+
+  // Listening ports
+  const portsEl = document.getElementById('listening-ports');
+  const ports = data.listeningPorts || statusData.listeningPorts || [];
+  if (ports.length > 0) {
+    portsEl.innerHTML = `<div style="max-height:300px;overflow-y:auto">
+      <table>
+        <thead><tr><th>Port</th><th>Service</th><th>PID</th><th>Process</th><th>Address</th></tr></thead>
+        <tbody>${ports.map(p => {
+          const portNum = p.port || p.localPort || 0;
+          const knownLabel = KNOWN_PORTS[portNum] || '';
+          const svcLabel = p.service || knownLabel;
+          return `<tr>
+            <td style="color:var(--cyan)">${portNum}</td>
+            <td>${svcLabel ? '<span style="color:var(--purple)">' + svcLabel + '</span>' : '<span style="color:var(--muted)">—</span>'}</td>
+            <td style="color:var(--muted)">${p.pid || '—'}</td>
+            <td style="color:var(--muted);max-width:150px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${p.process || p.name || '—'}</td>
+            <td style="color:var(--muted)">${p.address || p.localAddress || '*'}</td>
+          </tr>`;
+        }).join('')}</tbody>
+      </table>
+    </div>`;
+  } else {
+    portsEl.innerHTML = '<div style="color:var(--muted);font-size:11px;padding:8px 0">No listening port data available</div>';
+  }
+
+  // Load connectivity history chart
+  loadConnectivityHistory();
 }
 
 // --- Charts ---
@@ -550,6 +698,124 @@ function drawChart(canvasId, entries, key, color, isBandwidth) {
   ctx.beginPath(); ctx.arc(lastX, lastY, 3, 0, Math.PI * 2); ctx.fillStyle = color; ctx.fill();
   ctx.fillStyle = 'rgba(255,255,255,0.7)'; ctx.font = '9px monospace'; ctx.textAlign = 'right';
   ctx.fillText(lastVal >= 10 ? Math.round(lastVal).toString() : lastVal.toFixed(1), lastX - 6, lastY - 6);
+}
+
+function drawMultiLineChart(canvasId, entries, targetHosts, colors) {
+  const canvas = document.getElementById(canvasId);
+  if (!canvas) return;
+  const ctx = canvas.getContext('2d');
+  const rect = canvas.parentElement.getBoundingClientRect();
+  canvas.width = rect.width * 2; canvas.height = rect.height * 2;
+  ctx.scale(2, 2);
+  const w = rect.width, h = rect.height;
+  const pad = { top: 28, right: 12, bottom: 24, left: 40 };
+
+  if (!entries || entries.length < 2 || targetHosts.length === 0) {
+    ctx.fillStyle = 'rgba(255,255,255,0.2)'; ctx.font = '11px monospace';
+    ctx.fillText('Waiting for data...', w/2 - 50, h/2);
+    return;
+  }
+
+  // Find global max latency across all targets
+  let globalMax = 1;
+  targetHosts.forEach(host => {
+    entries.forEach(e => {
+      const t = (e.targets || []).find(t => t.host === host);
+      if (t && t.latencyMs > globalMax) globalMax = t.latencyMs;
+    });
+  });
+  globalMax = globalMax * 1.1;
+
+  const plotW = w - pad.left - pad.right, plotH = h - pad.top - pad.bottom;
+
+  // Grid lines
+  ctx.strokeStyle = 'rgba(255,255,255,0.04)'; ctx.lineWidth = 0.5;
+  for (let i = 0; i <= 4; i++) {
+    const y = pad.top + (plotH / 4) * i;
+    ctx.beginPath(); ctx.moveTo(pad.left, y); ctx.lineTo(w - pad.right, y); ctx.stroke();
+    ctx.fillStyle = 'rgba(255,255,255,0.25)'; ctx.font = '8px monospace'; ctx.textAlign = 'right';
+    const axisVal = globalMax - (globalMax / 4) * i;
+    ctx.fillText(Math.round(axisVal) + 'ms', pad.left - 4, y + 3);
+  }
+
+  // Time labels on bottom
+  if (entries.length > 0) {
+    ctx.fillStyle = 'rgba(255,255,255,0.2)'; ctx.font = '7px monospace'; ctx.textAlign = 'center';
+    const step = Math.max(1, Math.floor(entries.length / 5));
+    for (let i = 0; i < entries.length; i += step) {
+      const x = pad.left + (i / (entries.length - 1)) * plotW;
+      const t = new Date(entries[i].timestamp || entries[i].ts);
+      ctx.fillText(t.toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'}), x, h - pad.bottom + 14);
+    }
+  }
+
+  // Draw each target line
+  targetHosts.forEach((host, hostIdx) => {
+    const color = colors[hostIdx % colors.length];
+    const values = entries.map(e => {
+      const t = (e.targets || []).find(t => t.host === host);
+      return t && t.reachable ? t.latencyMs : null;
+    });
+
+    // Draw the line, skipping null values
+    ctx.beginPath();
+    ctx.strokeStyle = color; ctx.lineWidth = 1.5;
+    let started = false;
+    values.forEach((v, i) => {
+      if (v === null) { started = false; return; }
+      const x = pad.left + (i / (entries.length - 1)) * plotW;
+      const y = pad.top + plotH - (v / globalMax) * plotH;
+      if (!started) { ctx.moveTo(x, y); started = true; } else { ctx.lineTo(x, y); }
+    });
+    ctx.stroke();
+
+    // Draw last point dot
+    for (let i = values.length - 1; i >= 0; i--) {
+      if (values[i] !== null) {
+        const x = pad.left + (i / (entries.length - 1)) * plotW;
+        const y = pad.top + plotH - (values[i] / globalMax) * plotH;
+        ctx.beginPath(); ctx.arc(x, y, 3, 0, Math.PI * 2); ctx.fillStyle = color; ctx.fill();
+        break;
+      }
+    }
+  });
+
+  // Legend
+  const legendY = 12;
+  let legendX = pad.left;
+  ctx.font = '8px monospace'; ctx.textAlign = 'left';
+  targetHosts.forEach((host, i) => {
+    const color = colors[i % colors.length];
+    ctx.fillStyle = color;
+    ctx.fillRect(legendX, legendY - 4, 8, 3);
+    legendX += 10;
+    ctx.fillStyle = 'rgba(255,255,255,0.5)';
+    const label = host.length > 15 ? host.substring(0, 15) + '..' : host;
+    ctx.fillText(label, legendX, legendY);
+    legendX += ctx.measureText(label).width + 12;
+  });
+}
+
+async function loadConnectivityHistory() {
+  try {
+    const res = await fetch(API + '/connectivity/history?range=1h');
+    const data = await res.json();
+    const entries = data.entries || data.history || [];
+    if (entries.length === 0) return;
+
+    // Extract unique target hosts
+    const hostsSet = new Set();
+    entries.forEach(e => {
+      (e.targets || []).forEach(t => hostsSet.add(t.host));
+    });
+    const targetHosts = Array.from(hostsSet);
+
+    const lineColors = ['#22d3ee', '#4ade80', '#a78bfa', '#f472b6', '#fb923c', '#60a5fa', '#fbbf24', '#34d399', '#38bdf8', '#f87171'];
+
+    drawMultiLineChart('chart-conn-history', entries, targetHosts, lineColors);
+  } catch (e) {
+    // Silently fail if endpoint not available
+  }
 }
 
 function formatBandwidthTotal(kb) {

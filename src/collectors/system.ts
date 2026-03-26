@@ -8,20 +8,27 @@ import { loadJson, saveJson, pruneByAge } from "../store.js";
 const execAsync = promisify(exec);
 const HISTORY_FILE = "system-history.json";
 const RETENTION_DAYS = parseInt(process.env.HISTORY_RETENTION_DAYS || "7");
-const PERSIST_INTERVAL_MS = 60_000;
+const PERSIST_INTERVAL_MS = 300_000; // flush to disk every 5 min
+const HISTORY_ENTRY_INTERVAL_MS = 60_000; // add entry every 60s
 
 const NETWORK_INTERFACE = process.env.NETWORK_INTERFACE || "";
 
 let lastStats: SystemStats | null = null;
+let lastEntryAt = 0;
 let lastPersistedAt = 0;
 let networkLoggedOnce = false;
 
+// --- In-memory history buffer ---
+let historyBuffer: SystemHistoryEntry[] | null = null;
+
+async function ensureHistoryLoaded(): Promise<SystemHistoryEntry[]> {
+  if (!historyBuffer) historyBuffer = await loadJson<SystemHistoryEntry[]>(HISTORY_FILE, []);
+  return historyBuffer;
+}
+
 // --- CPU from /proc/stat ---
 
-interface CpuSnapshot {
-  idle: number;
-  total: number;
-}
+interface CpuSnapshot { idle: number; total: number }
 
 function parseProcStat(content: string): CpuSnapshot {
   const line = content.split("\n")[0];
@@ -47,7 +54,7 @@ async function getCpu(): Promise<number> {
   }
 }
 
-// --- Memory from os module ---
+// --- Memory ---
 
 function getMemory(): { used: number; total: number; percent: number } {
   const totalBytes = os.totalmem();
@@ -96,9 +103,13 @@ async function getLoadAvg(): Promise<{ load1: number; load5: number; load15: num
   }
 }
 
-// --- Disk from df ---
+// --- Disk from df (cached 60s) ---
+
+let diskCache: DiskInfo[] = [];
+let diskCachedAt = 0;
 
 async function getDisks(): Promise<DiskInfo[]> {
+  if (Date.now() - diskCachedAt < 60_000) return diskCache;
   try {
     const { stdout } = await execAsync("df -BG --output=target,used,size,pcent / /home 2>/dev/null", { timeout: 5000 });
     const lines = stdout.trim().split("\n").slice(1);
@@ -116,9 +127,11 @@ async function getDisks(): Promise<DiskInfo[]> {
         });
       }
     }
+    diskCache = disks;
+    diskCachedAt = Date.now();
     return disks;
   } catch {
-    return [];
+    return diskCache;
   }
 }
 
@@ -166,10 +179,7 @@ async function getDiskIO(): Promise<{ readKBps: number; writeKBps: number; devic
 
     let readKBps = 0, writeKBps = 0;
     for (const d of devices) { readKBps += d.readKBps; writeKBps += d.writeKBps; }
-    readKBps = Math.round(readKBps * 10) / 10;
-    writeKBps = Math.round(writeKBps * 10) / 10;
-
-    return { readKBps, writeKBps, devices };
+    return { readKBps: Math.round(readKBps * 10) / 10, writeKBps: Math.round(writeKBps * 10) / 10, devices };
   } catch {
     return { readKBps: 0, writeKBps: 0, devices: [] };
   }
@@ -197,11 +207,8 @@ function logNetworkInterfaces(ifaces: Map<string, IfaceBytes>): void {
   networkLoggedOnce = true;
   const names = [...ifaces.keys()];
   if (NETWORK_INTERFACE) {
-    if (ifaces.has(NETWORK_INTERFACE)) {
-      console.log(`Network: monitoring interface ${NETWORK_INTERFACE}`);
-    } else {
-      console.warn(`Network: interface '${NETWORK_INTERFACE}' not found. Available: ${names.join(", ") || "none"}`);
-    }
+    if (ifaces.has(NETWORK_INTERFACE)) console.log(`Network: monitoring interface ${NETWORK_INTERFACE}`);
+    else console.warn(`Network: interface '${NETWORK_INTERFACE}' not found. Available: ${names.join(", ") || "none"}`);
   } else {
     console.log(`Network: monitoring all interfaces (${names.join(", ") || "none"})`);
   }
@@ -237,7 +244,6 @@ async function getNetwork(): Promise<{ rxKBps: number; txKBps: number; interface
       rxKBps = Math.round(rxKBps * 10) / 10;
       txKBps = Math.round(txKBps * 10) / 10;
     }
-
     return { rxKBps, txKBps, interfaces: perIface };
   } catch {
     return { rxKBps: 0, txKBps: 0, interfaces: [] };
@@ -258,7 +264,7 @@ async function discoverThermalZones(): Promise<{ path: string; type: string }[]>
       try {
         const type = (await readFile(`${base}/type`, "utf-8")).trim();
         zones.push({ path: `${base}/temp`, type });
-      } catch { /* skip unreadable zones */ }
+      } catch { /* skip */ }
     }
     return zones;
   } catch {
@@ -270,7 +276,6 @@ async function getTemperature(): Promise<{ maxC: number; zones: ThermalZone[] } 
   try {
     if (thermalZones === null) thermalZones = await discoverThermalZones();
     if (thermalZones.length === 0) return null;
-
     const zones: ThermalZone[] = await Promise.all(
       thermalZones.map(async (z) => {
         try {
@@ -281,17 +286,15 @@ async function getTemperature(): Promise<{ maxC: number; zones: ThermalZone[] } 
         }
       })
     );
-
-    const maxC = Math.max(...zones.map((z) => z.tempC), 0);
-    return { maxC, zones };
+    return { maxC: Math.max(...zones.map((z) => z.tempC), 0), zones };
   } catch {
     return null;
   }
 }
 
-// --- TCP Connections from /proc/net/tcp ---
+// --- TCP Connections + Listening Ports from /proc/net/tcp ---
 
-async function getTcpConnections(): Promise<{ established: number; listening: number; timeWait: number; total: number }> {
+async function getTcpConnections(): Promise<{ established: number; listening: number; timeWait: number; total: number; listeningPorts: number[] }> {
   try {
     const [tcp4, tcp6] = await Promise.all([
       readFile("/proc/net/tcp", "utf-8").catch(() => ""),
@@ -299,6 +302,7 @@ async function getTcpConnections(): Promise<{ established: number; listening: nu
     ]);
 
     let established = 0, listening = 0, timeWait = 0, total = 0;
+    const portSet = new Set<number>();
     const lines = [...tcp4.trim().split("\n").slice(1), ...tcp6.trim().split("\n").slice(1)];
     for (const line of lines) {
       const parts = line.trim().split(/\s+/);
@@ -306,12 +310,17 @@ async function getTcpConnections(): Promise<{ established: number; listening: nu
       const state = parts[3];
       total++;
       if (state === "01") established++;
-      else if (state === "0A") listening++;
+      else if (state === "0A") {
+        listening++;
+        // Extract port from local_address (field 1): hex_ip:hex_port
+        const portHex = parts[1].split(":")[1];
+        if (portHex) portSet.add(parseInt(portHex, 16));
+      }
       else if (state === "06") timeWait++;
     }
-    return { established, listening, timeWait, total };
+    return { established, listening, timeWait, total, listeningPorts: [...portSet].sort((a, b) => a - b) };
   } catch {
-    return { established: 0, listening: 0, timeWait: 0, total: 0 };
+    return { established: 0, listening: 0, timeWait: 0, total: 0, listeningPorts: [] };
   }
 }
 
@@ -326,11 +335,33 @@ export async function collectSystem(): Promise<SystemStats> {
   const cpuCores = os.cpus().length || 1;
   lastStats = { cpu, cpuCores, memory, swap, disk, diskIO, network, loadAvg, temperature, tcpConnections };
 
-  // Persist every 60s
   const now = Date.now();
+  // Add history entry every 60s
+  if (now - lastEntryAt >= HISTORY_ENTRY_INTERVAL_MS) {
+    lastEntryAt = now;
+    const buf = await ensureHistoryLoaded();
+    buf.push({
+      timestamp: new Date().toISOString(),
+      cpu: lastStats.cpu,
+      memPercent: lastStats.memory.percent,
+      memUsedGB: lastStats.memory.used,
+      diskPercent: lastStats.disk[0]?.percent ?? 0,
+      rxKBps: lastStats.network.rxKBps,
+      txKBps: lastStats.network.txKBps,
+      load1: lastStats.loadAvg.load1,
+      swapPercent: lastStats.swap.percent,
+      tempC: lastStats.temperature?.maxC ?? 0,
+      diskReadKBps: lastStats.diskIO.readKBps,
+      diskWriteKBps: lastStats.diskIO.writeKBps,
+      tcpEstablished: lastStats.tcpConnections.established,
+    });
+    historyBuffer = pruneByAge(buf, RETENTION_DAYS * 86_400_000);
+  }
+
+  // Flush to disk every 5 min
   if (now - lastPersistedAt >= PERSIST_INTERVAL_MS) {
     lastPersistedAt = now;
-    persistHistory(lastStats).catch(() => {});
+    if (historyBuffer) saveJson(HISTORY_FILE, historyBuffer).catch(() => {});
   }
 
   return lastStats;
@@ -340,29 +371,8 @@ export function getLastStats(): SystemStats | null {
   return lastStats;
 }
 
-async function persistHistory(stats: SystemStats): Promise<void> {
-  const entries = await loadJson<SystemHistoryEntry[]>(HISTORY_FILE, []);
-  entries.push({
-    timestamp: new Date().toISOString(),
-    cpu: stats.cpu,
-    memPercent: stats.memory.percent,
-    memUsedGB: stats.memory.used,
-    diskPercent: stats.disk[0]?.percent ?? 0,
-    rxKBps: stats.network.rxKBps,
-    txKBps: stats.network.txKBps,
-    load1: stats.loadAvg.load1,
-    swapPercent: stats.swap.percent,
-    tempC: stats.temperature?.maxC ?? 0,
-    diskReadKBps: stats.diskIO.readKBps,
-    diskWriteKBps: stats.diskIO.writeKBps,
-    tcpEstablished: stats.tcpConnections.established,
-  });
-  const pruned = pruneByAge(entries, RETENTION_DAYS * 86_400_000);
-  await saveJson(HISTORY_FILE, pruned);
-}
-
 export async function getHistory(rangeMs: number): Promise<SystemHistoryEntry[]> {
-  const entries = await loadJson<SystemHistoryEntry[]>(HISTORY_FILE, []);
+  const buf = await ensureHistoryLoaded();
   const cutoff = Date.now() - rangeMs;
-  return entries.filter((e) => new Date(e.timestamp).getTime() > cutoff);
+  return buf.filter((e) => new Date(e.timestamp).getTime() > cutoff);
 }

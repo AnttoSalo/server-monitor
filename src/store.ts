@@ -1,5 +1,6 @@
-import { readFile, writeFile, mkdir } from "fs/promises";
+import { readFile, writeFile, mkdir, rename } from "fs/promises";
 import { join, dirname } from "path";
+import { randomBytes } from "crypto";
 
 const DATA_DIR = join(import.meta.dirname, "..", "data");
 
@@ -14,8 +15,10 @@ export async function loadJson<T>(filename: string, fallback: T): Promise<T> {
 
 export async function saveJson(filename: string, data: unknown): Promise<void> {
   const filepath = join(DATA_DIR, filename);
+  const tmpPath = filepath + "." + randomBytes(4).toString("hex") + ".tmp";
   await mkdir(dirname(filepath), { recursive: true });
-  await writeFile(filepath, JSON.stringify(data));
+  await writeFile(tmpPath, JSON.stringify(data));
+  await rename(tmpPath, filepath);
 }
 
 export function pruneByAge<T extends { timestamp: string }>(

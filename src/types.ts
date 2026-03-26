@@ -39,7 +39,7 @@ export interface SystemStats {
   network: { rxKBps: number; txKBps: number; interfaces: InterfaceStats[] };
   loadAvg: { load1: number; load5: number; load15: number; runProcs: number; totalProcs: number };
   temperature: { maxC: number; zones: ThermalZone[] } | null;
-  tcpConnections: { established: number; listening: number; timeWait: number; total: number };
+  tcpConnections: { established: number; listening: number; timeWait: number; total: number; listeningPorts: number[] };
 }
 
 export interface DiskInfo {
@@ -93,16 +93,60 @@ export interface ConnectivityHistoryEntry {
   targets: PingTarget[];
 }
 
+export interface SysInfo {
+  os: string;
+  kernel: string;
+  arch: string;
+  cpuModel: string;
+  cpuCores: number;
+  totalMemGB: number;
+  bootTimestamp: string;
+}
+
+export interface SelfMonitorStats {
+  memoryMB: number;
+  cpuPercent: number;
+  collectionMs: number;
+  uptimeSeconds: number;
+}
+
+export interface LoggedInUser {
+  user: string;
+  terminal: string;
+  loginTime: string;
+  from: string;
+}
+
+export interface PendingUpdates {
+  count: number;
+  lastChecked: string;
+}
+
+export interface DockerContainer {
+  id: string;
+  name: string;
+  image: string;
+  status: string;
+  state: string;
+  ports: string;
+}
+
 export interface StatusResponse {
   system: SystemStats;
   pm2: { processes: PM2Process[] };
   connectivity: ConnectivityStatus;
   topProcesses: { byCpu: TopProcess[]; byMem: TopProcess[] };
   services: ServiceStatus[];
+  sysInfo: SysInfo | null;
+  selfMonitor: SelfMonitorStats | null;
+  loggedInUsers: LoggedInUser[];
+  pendingUpdates: PendingUpdates | null;
+  docker: DockerContainer[];
   meta: {
     hostname: string;
     platform: string;
     uptime: number;
+    bootTimestamp: string;
     nodeVersion: string;
     monitorVersion: string;
   };
