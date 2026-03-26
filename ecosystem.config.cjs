@@ -14,6 +14,8 @@ module.exports = {
         ALERT_MEMORY: 85,
         ALERT_DISK: 90,
         ALERT_TEMP: 80,
+        CERT_DOMAINS: "",
+        REPORT_INTERVAL: "daily",
       },
       max_memory_restart: "100M",
     },

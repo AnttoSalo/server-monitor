@@ -1,21 +1,26 @@
 import express from "express";
+import { createServer } from "http";
 import { join } from "path";
-import { collectSystem } from "./collectors/system.js";
-import { collectPM2 } from "./collectors/pm2.js";
-import { collectConnectivity } from "./collectors/connectivity.js";
+import { WebSocketServer } from "ws";
+import { collectSystem, getLastStats } from "./collectors/system.js";
+import { collectPM2, getLastProcesses } from "./collectors/pm2.js";
+import { collectConnectivity, getLastConnectivity } from "./collectors/connectivity.js";
 import { collectTopProcesses } from "./collectors/processes.js";
-import { collectServices } from "./collectors/services.js";
+import { collectServices, getLastServices } from "./collectors/services.js";
 import { collectSysInfo } from "./collectors/sysinfo.js";
 import { collectSelfMonitor, setCollectionMs } from "./collectors/selfmon.js";
 import { collectUsers } from "./collectors/users.js";
 import { collectUpdates } from "./collectors/updates.js";
 import { collectDocker } from "./collectors/docker.js";
+import { collectCerts } from "./collectors/certs.js";
+import { collectSshAuth } from "./collectors/sshauth.js";
+import { collectSmart } from "./collectors/smart.js";
+import { collectCrontabs } from "./collectors/crontabs.js";
+import { initBandwidth, updateBandwidth, persistBandwidth } from "./collectors/bandwidth.js";
+import { trackRestarts } from "./collectors/restarts.js";
 import { checkAlerts } from "./collectors/alerts.js";
 import { trackUptime } from "./collectors/uptime.js";
-import { getLastStats } from "./collectors/system.js";
-import { getLastProcesses } from "./collectors/pm2.js";
-import { getLastConnectivity } from "./collectors/connectivity.js";
-import { getLastServices } from "./collectors/services.js";
+import { checkScheduledReport } from "./collectors/reports.js";
 import { authMiddleware } from "./auth.js";
 import statusRouter from "./routes/status.js";
 import systemRouter from "./routes/system.js";
@@ -23,6 +28,7 @@ import pm2Router from "./routes/pm2.js";
 import connectivityRouter from "./routes/connectivity.js";
 import healthRouter from "./routes/health.js";
 import speedtestRouter from "./routes/speedtest.js";
+import exportRouter from "./routes/export.js";
 
 const PORT = parseInt(process.env.PORT || "3099");
 const BASE = process.env.BASE_PATH || "";
@@ -31,6 +37,20 @@ const PM2_INTERVAL = parseInt(process.env.PM2_INTERVAL || "30000");
 const PROCESS_INTERVAL = parseInt(process.env.PROCESS_INTERVAL || "15000");
 const CONNECTIVITY_INTERVAL = parseInt(process.env.CONNECTIVITY_INTERVAL || "30000");
 const app = express();
+const server = createServer(app);
+
+// WebSocket server for real-time push
+const wss = new WebSocketServer({ server, path: BASE + "/ws" });
+
+function broadcastStatus(): void {
+  if (wss.clients.size === 0) return;
+  const system = getLastStats();
+  if (!system) return;
+  const msg = JSON.stringify({ type: "status", system });
+  for (const client of wss.clients) {
+    if (client.readyState === 1) client.send(msg);
+  }
+}
 
 app.use((_req, res, next) => {
   res.header("Access-Control-Allow-Origin", "*");
@@ -38,7 +58,6 @@ app.use((_req, res, next) => {
   next();
 });
 
-// Log slow requests (>500ms) and errors
 app.use((req, res, next) => {
   const start = performance.now();
   res.on("finish", () => {
@@ -58,29 +77,37 @@ app.use(BASE + "/pm2", pm2Router);
 app.use(BASE + "/connectivity", connectivityRouter);
 app.use(BASE + "/health", healthRouter);
 app.use(BASE + "/speedtest", speedtestRouter);
+app.use(BASE + "/export", exportRouter);
 
 app.use(BASE + "/", express.static(join(import.meta.dirname, "..", "public")));
 
+// Track whether a history entry was just added (for bandwidth tracking)
+let lastHistoryEntryCount = 0;
+
 async function startCollectors() {
   console.log("Starting collectors...");
+
+  await initBandwidth();
 
   const t0 = performance.now();
   await Promise.allSettled([
     collectSystem(), collectPM2(), collectConnectivity(),
     collectTopProcesses(), collectServices(), collectSysInfo(),
     collectUsers(), collectUpdates(), collectDocker(),
+    collectCerts(), collectSshAuth(), collectSmart(), collectCrontabs(),
   ]);
   setCollectionMs(Math.round(performance.now() - t0));
   collectSelfMonitor();
   console.log("Initial collection complete");
 
+  // System stats at configured interval
   setInterval(async () => {
     const t = performance.now();
     await collectSystem().catch(console.error);
     setCollectionMs(Math.round(performance.now() - t));
     collectSelfMonitor();
 
-    // Check alerts and track uptime after each collection
+    // Check alerts and track uptime
     const sys = getLastStats();
     const pm2 = getLastProcesses();
     const conn = getLastConnectivity();
@@ -89,20 +116,36 @@ async function startCollectors() {
       checkAlerts(sys, pm2, conn, svcs);
       trackUptime(conn, svcs, pm2).catch(() => {});
     }
+
+    // Broadcast via WebSocket
+    broadcastStatus();
+
+    // Check scheduled reports
+    checkScheduledReport();
   }, SYSTEM_INTERVAL);
 
-  setInterval(() => { collectPM2().catch(console.error); }, PM2_INTERVAL);
+  setInterval(async () => {
+    await collectPM2().catch(console.error);
+    trackRestarts(getLastProcesses()).catch(() => {});
+  }, PM2_INTERVAL);
   setInterval(() => { collectTopProcesses().catch(console.error); }, PROCESS_INTERVAL);
   setInterval(() => { collectConnectivity().catch(console.error); }, CONNECTIVITY_INTERVAL);
   setInterval(() => { collectServices().catch(console.error); }, CONNECTIVITY_INTERVAL);
   setInterval(() => { collectUsers().catch(console.error); }, CONNECTIVITY_INTERVAL);
   setInterval(() => { collectDocker().catch(console.error); }, CONNECTIVITY_INTERVAL);
+  setInterval(() => { collectSshAuth().catch(console.error); }, CONNECTIVITY_INTERVAL);
 
-  // Package updates every 1 hour
-  setInterval(() => { collectUpdates().catch(console.error); }, 3_600_000);
+  // Slow collectors
+  setInterval(() => { collectUpdates().catch(console.error); }, 3_600_000); // 1 hour
+  setInterval(() => { collectCerts().catch(console.error); }, 3_600_000); // 1 hour
+  setInterval(() => { collectSmart().catch(console.error); }, 3_600_000); // 1 hour
+  setInterval(() => { collectCrontabs().catch(console.error); }, 3_600_000); // 1 hour
+
+  // Bandwidth persistence every 5 min
+  setInterval(() => { persistBandwidth().catch(() => {}); }, 300_000);
 }
 
-app.listen(PORT, () => {
+server.listen(PORT, () => {
   console.log(`server-monitor listening on port ${PORT}${BASE ? ` (base: ${BASE})` : ""}`);
   startCollectors();
 });

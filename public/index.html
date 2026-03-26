@@ -22,6 +22,14 @@
     --emerald: #34d399;
     --sky: #38bdf8;
   }
+  /* Light theme */
+  body.light {
+    --bg: #f5f5f5; --surface: #ffffff; --border: rgba(0,0,0,0.1);
+    --text: #1a1a2e; --muted: rgba(0,0,0,0.5);
+  }
+  body.light .log-viewer { background: #f0f0f0; color: #333; }
+  body.light .chart-container { background: #fff; }
+
   * { margin: 0; padding: 0; box-sizing: border-box; }
   body { background: var(--bg); color: var(--text); font-family: 'SF Mono', 'Cascadia Code', 'Fira Code', 'Consolas', monospace; font-size: 12px; min-height: 100vh; }
   a { color: var(--cyan); text-decoration: none; }
@@ -34,6 +42,9 @@
   .status-dot.online { background: var(--green); }
   .status-dot.degraded { background: var(--amber); }
   .status-dot.offline { background: var(--red); }
+
+  .theme-toggle { background: var(--surface); border: 1px solid var(--border); color: var(--muted); padding: 4px 10px; border-radius: 4px; font-family: inherit; font-size: 10px; cursor: pointer; letter-spacing: 0.05em; }
+  .theme-toggle:hover { border-color: var(--cyan); color: var(--text); }
 
   .tabs { display: flex; border-bottom: 1px solid var(--border); padding: 0 24px; }
   .tab { padding: 10px 16px; font-size: 10px; text-transform: uppercase; letter-spacing: 0.1em; color: var(--muted); cursor: pointer; border-bottom: 2px solid transparent; transition: all 0.2s; }
@@ -81,10 +92,10 @@
   .latency-fill { height: 100%; border-radius: 2px; background: var(--cyan); }
 
   /* Logs */
-  .log-controls { display: flex; gap: 8px; align-items: center; margin-bottom: 12px; }
+  .log-controls { display: flex; gap: 8px; align-items: center; margin-bottom: 12px; flex-wrap: wrap; }
   .log-controls select, .log-controls button { background: var(--surface); border: 1px solid var(--border); color: var(--text); padding: 6px 10px; border-radius: 4px; font-family: inherit; font-size: 11px; cursor: pointer; }
   .log-controls button:hover { border-color: var(--cyan); }
-  .log-viewer { background: #050510; border: 1px solid var(--border); border-radius: 6px; padding: 12px; height: 500px; overflow-y: auto; white-space: pre-wrap; word-break: break-all; font-size: 10px; line-height: 1.6; color: rgba(255,255,255,0.7); }
+  .log-viewer { background: #050510; border: 1px solid var(--border); border-radius: 6px; padding: 12px; max-height: 70vh; overflow-y: auto; white-space: pre-wrap; word-break: break-all; font-size: 10px; line-height: 1.6; color: rgba(255,255,255,0.7); }
 
   /* History charts */
   .chart-container { position: relative; height: 180px; background: var(--surface); border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }
@@ -112,7 +123,15 @@
 
   @media (max-width: 768px) {
     .grid-2, .grid-3, .grid-4 { grid-template-columns: 1fr; }
-    .gauge-row { flex-wrap: wrap; }
+    .gauge-row { flex-wrap: wrap; gap: 12px; }
+    .gauge svg { width: 70px; height: 70px; }
+    .gauge-label { font-size: 8px; }
+    .header { flex-direction: column; gap: 8px; }
+    .header-meta { flex-wrap: wrap; justify-content: center; }
+    .tabs { overflow-x: auto; }
+    .tab { padding: 10px 10px; font-size: 9px; white-space: nowrap; }
+    .period-selector { flex-wrap: wrap; }
+    .log-controls { flex-wrap: wrap; }
   }
 </style>
 </head>
@@ -127,6 +146,7 @@
     <span id="last-updated">—</span>
     <span id="updates-badge"></span>
     <span id="alert-indicator"></span>
+    <button class="theme-toggle" id="theme-toggle">Theme</button>
   </div>
 </header>
 
@@ -134,6 +154,7 @@
   <div class="tab active" data-tab="overview">Overview</div>
   <div class="tab" data-tab="processes">Processes</div>
   <div class="tab" data-tab="network">Network</div>
+  <div class="tab" data-tab="security">Security</div>
   <div class="tab" data-tab="history">History</div>
   <div class="tab" data-tab="logs">Logs</div>
 </nav>
@@ -167,6 +188,7 @@
     <div id="services-card" style="margin-top:16px"></div>
     <div id="users-card" style="margin-top:16px"></div>
     <div id="incidents-card" style="margin-top:16px"></div>
+    <div id="bandwidth-card" style="margin-top:16px"></div>
     <div id="sysinfo-card" style="margin-top:16px"></div>
   </div>
 
@@ -220,6 +242,28 @@
     </div>
   </div>
 
+  <!-- SECURITY -->
+  <div class="tab-content" id="tab-security">
+    <div class="grid grid-2">
+      <div class="card">
+        <div class="card-title">SSL Certificates</div>
+        <div id="cert-status"></div>
+      </div>
+      <div class="card">
+        <div class="card-title">SSH Auth Log</div>
+        <div id="ssh-auth"></div>
+      </div>
+      <div class="card">
+        <div class="card-title">Disk Health (SMART)</div>
+        <div id="smart-status"></div>
+      </div>
+      <div class="card">
+        <div class="card-title">Cron Jobs</div>
+        <div id="cron-jobs"></div>
+      </div>
+    </div>
+  </div>
+
   <!-- HISTORY -->
   <div class="tab-content" id="tab-history">
     <div class="period-selector" id="period-selector">
@@ -227,6 +271,8 @@
       <button class="period-btn" data-range="6h">6H</button>
       <button class="period-btn" data-range="24h">24H</button>
       <button class="period-btn" data-range="7d">7D</button>
+      <button class="period-btn" id="export-csv" style="margin-left:auto">Export CSV</button>
+      <button class="period-btn" id="export-json">Export JSON</button>
     </div>
     <div id="bandwidth-totals" style="display:flex;gap:16px;margin-bottom:12px;font-size:11px;color:var(--muted)"></div>
     <div class="grid grid-2" id="history-charts">
@@ -246,6 +292,12 @@
   <div class="tab-content" id="tab-logs">
     <div class="log-controls">
       <select id="log-process"></select>
+      <select id="log-level">
+        <option value="">All Levels</option>
+        <option value="error">Errors</option>
+        <option value="warn">Warnings</option>
+      </select>
+      <input type="text" id="log-search" placeholder="Search logs..." style="background:var(--surface);border:1px solid var(--border);color:var(--text);padding:6px 10px;border-radius:4px;font-family:inherit;font-size:11px;flex:1;min-width:150px">
       <button id="log-refresh">Refresh</button>
       <span id="log-count" style="color:var(--muted);font-size:10px"></span>
     </div>
@@ -259,8 +311,17 @@
 const basePath = window.location.pathname.replace(/\/+$/, '').replace(/\/index\.html$/, '');
 const API = window.location.origin + basePath;
 let statusData = null;
+let rawLogLines = [];
 
 const KNOWN_PORTS = {22:'SSH',25:'SMTP',53:'DNS',80:'HTTP',443:'HTTPS',3000:'Dev',3306:'MySQL',5432:'Postgres',6379:'Redis',8080:'HTTP-Alt',8443:'HTTPS-Alt',27017:'MongoDB'};
+
+// --- Theme toggle ---
+document.getElementById('theme-toggle').addEventListener('click', () => {
+  document.body.classList.toggle('light');
+  localStorage.setItem('theme', document.body.classList.contains('light') ? 'light' : 'dark');
+});
+// Restore on load
+if (localStorage.getItem('theme') === 'light') document.body.classList.add('light');
 
 // --- Tabs ---
 document.querySelectorAll('.tab').forEach(tab => {
@@ -330,7 +391,7 @@ function makeTempGauge(tempC, alertClass) {
       <circle cx="50" cy="50" r="${r}" fill="none" stroke="${color}" stroke-width="6"
         stroke-dasharray="${c}" stroke-dashoffset="${offset}" stroke-linecap="round"
         transform="rotate(-90 50 50)" style="transition:stroke-dashoffset 0.5s"/>
-      <text x="50" y="48" text-anchor="middle" fill="${color}" font-size="16" font-weight="700" font-family="inherit">${Math.round(tempC)}°</text>
+      <text x="50" y="48" text-anchor="middle" fill="${color}" font-size="16" font-weight="700" font-family="inherit">${Math.round(tempC)}\u00B0</text>
       <text x="50" y="62" text-anchor="middle" fill="rgba(255,255,255,0.4)" font-size="8" font-family="inherit">celsius</text>
     </svg>
     <div class="gauge-label">Temp</div>
@@ -375,7 +436,7 @@ function renderOverview(data) {
       .slice(0, 6)
       .map(z => {
         const c = z.tempC > 80 ? 'var(--red)' : z.tempC > 60 ? 'var(--amber)' : 'var(--muted)';
-        return `<span style="font-size:9px;color:${c}">${z.zone}: ${z.tempC}°C</span>`;
+        return `<span style="font-size:9px;color:${c}">${z.zone}: ${z.tempC}\u00B0C</span>`;
       }).join(' &nbsp; ');
     document.getElementById('gauges').insertAdjacentHTML('afterend',
       `<div id="temp-zones" style="text-align:center;padding:2px 0;margin-top:-4px">${zonesHtml}</div>`);
@@ -474,10 +535,10 @@ function renderOverview(data) {
       <table>
         <thead><tr><th>User</th><th>Terminal</th><th>From</th><th>Login Time</th></tr></thead>
         <tbody>${data.users.map(u => `<tr>
-          <td>${u.user || u.name || '—'}</td>
-          <td style="color:var(--muted)">${u.terminal || u.tty || '—'}</td>
-          <td style="color:var(--muted)">${u.host || u.from || '—'}</td>
-          <td style="color:var(--muted)">${u.login || u.time || '—'}</td>
+          <td>${u.user || u.name || '\u2014'}</td>
+          <td style="color:var(--muted)">${u.terminal || u.tty || '\u2014'}</td>
+          <td style="color:var(--muted)">${u.host || u.from || '\u2014'}</td>
+          <td style="color:var(--muted)">${u.login || u.time || '\u2014'}</td>
         </tr>`).join('')}</tbody>
       </table>
     </div>`;
@@ -519,15 +580,18 @@ function renderOverview(data) {
       <div style="color:var(--green);font-size:11px;padding:4px 0">All systems operational</div></div>`;
   }
 
+  // Bandwidth card
+  renderBandwidth(data);
+
   // System info
   const sysinfoCard = document.getElementById('sysinfo-card');
   if (data.systemInfo || m) {
     const si = data.systemInfo || {};
     let infoHtml = '<div class="card"><div class="card-title">System Info</div><div style="display:grid;grid-template-columns:1fr 1fr;gap:4px 16px;font-size:11px">';
     if (m.hostname) infoHtml += `<span style="color:var(--muted)">Hostname</span><span>${m.hostname}</span>`;
-    if (si.os || m.os) infoHtml += `<span style="color:var(--muted)">OS</span><span>${si.os || m.os || '—'}</span>`;
+    if (si.os || m.os) infoHtml += `<span style="color:var(--muted)">OS</span><span>${si.os || m.os || '\u2014'}</span>`;
     if (si.kernel) infoHtml += `<span style="color:var(--muted)">Kernel</span><span>${si.kernel}</span>`;
-    if (si.arch || m.arch) infoHtml += `<span style="color:var(--muted)">Arch</span><span>${si.arch || m.arch || '—'}</span>`;
+    if (si.arch || m.arch) infoHtml += `<span style="color:var(--muted)">Arch</span><span>${si.arch || m.arch || '\u2014'}</span>`;
     if (s.cpuCores) infoHtml += `<span style="color:var(--muted)">CPU Cores</span><span>${s.cpuCores}</span>`;
     if (si.cpuModel) infoHtml += `<span style="color:var(--muted)">CPU Model</span><span>${si.cpuModel}</span>`;
     if (s.memory && s.memory.total) infoHtml += `<span style="color:var(--muted)">Total RAM</span><span>${s.memory.total} GB</span>`;
@@ -614,11 +678,11 @@ function renderProcesses(data) {
       <table>
         <thead><tr><th>Name</th><th>Image</th><th>Status</th><th>Ports</th><th>Created</th></tr></thead>
         <tbody>${data.docker.map(c => `<tr>
-          <td>${c.name || c.Names || '—'}</td>
-          <td style="color:var(--muted)">${c.image || c.Image || '—'}</td>
-          <td><span class="status-badge"><span class="status-dot" style="background:${dockerStatusColor(c.state || c.State || c.status || '')}"></span>${c.status || c.Status || c.state || c.State || '—'}</span></td>
-          <td style="color:var(--muted);font-size:10px;max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${c.ports || c.Ports || '—'}</td>
-          <td style="color:var(--muted)">${c.created || c.CreatedAt || '—'}</td>
+          <td>${c.name || c.Names || '\u2014'}</td>
+          <td style="color:var(--muted)">${c.image || c.Image || '\u2014'}</td>
+          <td><span class="status-badge"><span class="status-dot" style="background:${dockerStatusColor(c.state || c.State || c.status || '')}"></span>${c.status || c.Status || c.state || c.State || '\u2014'}</span></td>
+          <td style="color:var(--muted);font-size:10px;max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${c.ports || c.Ports || '\u2014'}</td>
+          <td style="color:var(--muted)">${c.created || c.CreatedAt || '\u2014'}</td>
         </tr>`).join('')}</tbody>
       </table>
     </div>`;
@@ -651,7 +715,7 @@ function renderNetwork(data) {
   }).join('');
 
   let detailsHtml = `<div style="padding:4px 0">
-      <div style="margin-bottom:8px"><span style="color:var(--muted)">WAN IP:</span> ${c.wanIp || '—'}</div>
+      <div style="margin-bottom:8px"><span style="color:var(--muted)">WAN IP:</span> ${c.wanIp || '\u2014'}</div>
       <div style="margin-bottom:8px"><span style="color:var(--muted)">Last check:</span> ${new Date(c.lastChecked).toLocaleTimeString()}</div>
       <div style="margin-bottom:8px"><span style="color:var(--muted)">Throughput:</span> &#x2193; ${formatSpeed(statusData.system.network.rxKBps)} / &#x2191; ${formatSpeed(statusData.system.network.txKBps)}</div>`;
   const ifaces = statusData.system.network.interfaces || [];
@@ -695,6 +759,135 @@ function renderNetwork(data) {
 
   // Load connectivity history chart
   loadConnectivityHistory();
+}
+
+// --- Render Security ---
+function renderSecurity(data) {
+  // SSL Certificates
+  const certEl = document.getElementById('cert-status');
+  const certs = (data.security && data.security.ssl) || [];
+  if (certs.length > 0) {
+    certEl.innerHTML = `<table>
+      <thead><tr><th>Domain</th><th>Days Left</th><th>Issuer</th></tr></thead>
+      <tbody>${certs.map(c => {
+        const days = c.daysRemaining != null ? c.daysRemaining : c.days;
+        const color = days < 30 ? 'var(--red)' : days < 60 ? 'var(--amber)' : 'var(--green)';
+        return `<tr>
+          <td>${c.domain || c.host || '\u2014'}</td>
+          <td style="color:${color};font-weight:600">${days != null ? days + 'd' : '\u2014'}</td>
+          <td style="color:var(--muted)">${c.issuer || '\u2014'}</td>
+        </tr>`;
+      }).join('')}</tbody>
+    </table>`;
+  } else {
+    certEl.innerHTML = '<div style="color:var(--muted);font-size:11px;padding:8px 0">No SSL certificate data</div>';
+  }
+
+  // SSH Auth Log
+  const sshEl = document.getElementById('ssh-auth');
+  const sshEvents = (data.security && data.security.sshAuth) || [];
+  if (sshEvents.length > 0) {
+    const recent = sshEvents.slice(-20).reverse();
+    sshEl.innerHTML = `<div style="max-height:300px;overflow-y:auto"><table>
+      <thead><tr><th>Type</th><th>User</th><th>IP</th><th>Time</th></tr></thead>
+      <tbody>${recent.map(e => {
+        const type = (e.type || e.status || '').toLowerCase();
+        const color = type.includes('fail') ? 'var(--red)' : type.includes('accept') ? 'var(--green)' : 'var(--muted)';
+        return `<tr>
+          <td style="color:${color};font-weight:600">${e.type || e.status || '\u2014'}</td>
+          <td>${e.user || '\u2014'}</td>
+          <td style="color:var(--muted)">${e.ip || e.address || '\u2014'}</td>
+          <td style="color:var(--muted)">${e.time || e.timestamp || '\u2014'}</td>
+        </tr>`;
+      }).join('')}</tbody>
+    </table></div>`;
+  } else {
+    sshEl.innerHTML = '<div style="color:var(--muted);font-size:11px;padding:8px 0">No SSH auth data</div>';
+  }
+
+  // SMART Status
+  const smartEl = document.getElementById('smart-status');
+  const smartDevices = (data.security && data.security.smart) || [];
+  if (smartDevices.length > 0) {
+    smartEl.innerHTML = `<div style="display:flex;flex-wrap:wrap;gap:8px">${smartDevices.map(d => {
+      const status = (d.status || d.health || '').toLowerCase();
+      const ok = status.includes('pass') || status.includes('ok') || status.includes('healthy');
+      const color = ok ? 'var(--green)' : 'var(--red)';
+      const temp = d.temperature != null ? d.temperature + '\u00B0C' : '';
+      return `<div style="padding:8px 12px;background:rgba(255,255,255,0.03);border-radius:6px;border:1px solid var(--border)">
+        <div style="font-size:11px;font-weight:600">${d.device || d.name || '\u2014'}</div>
+        <div style="font-size:10px;color:${color};margin-top:2px">${d.status || d.health || '\u2014'}</div>
+        ${temp ? '<div style="font-size:10px;color:var(--muted);margin-top:2px">' + temp + '</div>' : ''}
+      </div>`;
+    }).join('')}</div>`;
+  } else {
+    smartEl.innerHTML = '<div style="color:var(--muted);font-size:11px;padding:8px 0">No SMART data</div>';
+  }
+
+  // Cron Jobs
+  const cronEl = document.getElementById('cron-jobs');
+  const cronJobs = (data.security && data.security.cron) || [];
+  if (cronJobs.length > 0) {
+    cronEl.innerHTML = `<div style="max-height:300px;overflow-y:auto"><table>
+      <thead><tr><th>User</th><th>Schedule</th><th>Command</th></tr></thead>
+      <tbody>${cronJobs.map(j => `<tr>
+        <td>${j.user || '\u2014'}</td>
+        <td style="color:var(--muted);white-space:nowrap">${j.schedule || '\u2014'}</td>
+        <td style="color:var(--muted);max-width:300px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${j.command || j.cmd || '\u2014'}</td>
+      </tr>`).join('')}</tbody>
+    </table></div>`;
+  } else {
+    cronEl.innerHTML = '<div style="color:var(--muted);font-size:11px;padding:8px 0">No cron job data</div>';
+  }
+}
+
+// --- Render Bandwidth ---
+function renderBandwidth(data) {
+  const bandwidthCard = document.getElementById('bandwidth-card');
+  const bw = data.bandwidth;
+  if (bw && Array.isArray(bw) && bw.length > 0) {
+    let html = '<div class="card"><div class="card-title">Monthly Bandwidth</div>';
+    html += '<div style="font-size:11px;line-height:1.8">';
+    bw.forEach(entry => {
+      const month = entry.month || entry.period || '\u2014';
+      const rx = entry.rx != null ? entry.rx : (entry.rxGB != null ? entry.rxGB : 0);
+      const tx = entry.tx != null ? entry.tx : (entry.txGB != null ? entry.txGB : 0);
+      const rxStr = typeof rx === 'number' ? rx.toFixed(1) + ' GB' : rx;
+      const txStr = typeof tx === 'number' ? tx.toFixed(1) + ' GB' : tx;
+      html += `<div style="display:flex;gap:16px;padding:2px 0">
+        <span style="color:var(--muted);min-width:60px">${month}</span>
+        <span><span style="color:var(--green)">\u2193</span> ${rxStr}</span>
+        <span><span style="color:var(--amber)">\u2191</span> ${txStr}</span>
+      </div>`;
+    });
+    html += '</div></div>';
+    bandwidthCard.innerHTML = html;
+  } else if (bw && typeof bw === 'object' && !Array.isArray(bw)) {
+    // Handle object format: { "2026-03": { rx: ..., tx: ... }, ... }
+    const months = Object.keys(bw).sort().reverse();
+    if (months.length > 0) {
+      let html = '<div class="card"><div class="card-title">Monthly Bandwidth</div>';
+      html += '<div style="font-size:11px;line-height:1.8">';
+      months.forEach(month => {
+        const entry = bw[month];
+        const rx = entry.rx != null ? entry.rx : (entry.rxGB != null ? entry.rxGB : 0);
+        const tx = entry.tx != null ? entry.tx : (entry.txGB != null ? entry.txGB : 0);
+        const rxStr = typeof rx === 'number' ? rx.toFixed(1) + ' GB' : rx;
+        const txStr = typeof tx === 'number' ? tx.toFixed(1) + ' GB' : tx;
+        html += `<div style="display:flex;gap:16px;padding:2px 0">
+          <span style="color:var(--muted);min-width:60px">${month}</span>
+          <span><span style="color:var(--green)">\u2193</span> ${rxStr}</span>
+          <span><span style="color:var(--amber)">\u2191</span> ${txStr}</span>
+        </div>`;
+      });
+      html += '</div></div>';
+      bandwidthCard.innerHTML = html;
+    } else {
+      bandwidthCard.innerHTML = '';
+    }
+  } else {
+    bandwidthCard.innerHTML = '';
+  }
 }
 
 // --- Charts ---
@@ -1064,13 +1257,21 @@ async function loadHistory() {
   } catch {}
 }
 
-document.querySelectorAll('.period-btn').forEach(btn => {
+document.querySelectorAll('.period-btn[data-range]').forEach(btn => {
   btn.addEventListener('click', () => {
-    document.querySelectorAll('.period-btn').forEach(b => b.classList.remove('active'));
+    document.querySelectorAll('.period-btn[data-range]').forEach(b => b.classList.remove('active'));
     btn.classList.add('active');
     historyRange = btn.dataset.range;
     loadHistory();
   });
+});
+
+// --- Export buttons ---
+document.getElementById('export-csv').addEventListener('click', () => {
+  window.open(API + '/export/csv?range=' + historyRange);
+});
+document.getElementById('export-json').addEventListener('click', () => {
+  window.open(API + '/export/json?range=' + historyRange);
 });
 
 // --- Logs ---
@@ -1081,12 +1282,61 @@ async function loadLogs() {
   try {
     const res = await fetch(API + '/pm2/logs/' + name + '?lines=200');
     const data = await res.json();
-    document.getElementById('log-viewer').textContent = data.lines.join('\n');
-    document.getElementById('log-count').textContent = data.lines.length + ' lines';
+    rawLogLines = data.lines || [];
+    filterLogs();
     document.getElementById('log-viewer').scrollTop = document.getElementById('log-viewer').scrollHeight;
   } catch (e) { document.getElementById('log-viewer').textContent = 'Error: ' + e.message; }
 }
+
+function filterLogs() {
+  const searchText = (document.getElementById('log-search').value || '').toLowerCase();
+  const level = document.getElementById('log-level').value;
+  let filtered = rawLogLines;
+
+  if (level) {
+    filtered = filtered.filter(line => {
+      const lower = line.toLowerCase();
+      if (level === 'error') return lower.includes('error') || lower.includes('err');
+      if (level === 'warn') return lower.includes('warn') || lower.includes('warning');
+      return true;
+    });
+  }
+
+  if (searchText) {
+    filtered = filtered.filter(line => line.toLowerCase().includes(searchText));
+  }
+
+  document.getElementById('log-viewer').textContent = filtered.join('\n');
+  document.getElementById('log-count').textContent = filtered.length + ' / ' + rawLogLines.length + ' lines';
+}
+
 document.getElementById('log-refresh').addEventListener('click', loadLogs);
+
+// Debounced search input
+let logSearchTimer = null;
+document.getElementById('log-search').addEventListener('input', () => {
+  clearTimeout(logSearchTimer);
+  logSearchTimer = setTimeout(filterLogs, 300);
+});
+
+document.getElementById('log-level').addEventListener('change', filterLogs);
+
+// --- WebSocket ---
+let ws = null;
+function connectWebSocket() {
+  const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+  ws = new WebSocket(proto + '//' + location.host + basePath + '/ws');
+  ws.onmessage = (e) => {
+    const msg = JSON.parse(e.data);
+    if (msg.type === 'status' && statusData) {
+      statusData.system = msg.system;
+      renderOverview(statusData);
+    }
+  };
+  ws.onclose = () => { setTimeout(connectWebSocket, 5000); };
+  ws.onerror = () => { ws.close(); };
+}
+connectWebSocket();
 
 // --- Polling ---
 async function poll() {
@@ -1096,6 +1346,7 @@ async function poll() {
     renderOverview(statusData);
     renderProcesses(statusData);
     renderNetwork(statusData);
+    renderSecurity(statusData);
 
     const sel = document.getElementById('log-process');
     const current = sel.value;
@@ -1114,7 +1365,9 @@ setInterval(() => {
   if (document.querySelector('[data-tab="history"]').classList.contains('active')) loadHistory();
 }, 60000);
 
+// Keyboard shortcuts: 1=Overview, 2=Processes, 3=Network, 4=Security, 5=History, 6=Logs
 document.addEventListener('keydown', e => {
+  if (e.target.tagName === 'INPUT' || e.target.tagName === 'SELECT' || e.target.tagName === 'TEXTAREA') return;
   const idx = parseInt(e.key) - 1;
   const tabs = document.querySelectorAll('.tab');
   if (idx >= 0 && idx < tabs.length) tabs[idx].click();

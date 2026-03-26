@@ -4,6 +4,7 @@ import { promisify } from "util";
 import os from "os";
 import type { SystemStats, DiskInfo, SystemHistoryEntry, InterfaceStats, ThermalZone, DiskIOStats } from "../types.js";
 import { loadJson, saveJson, pruneByAge } from "../store.js";
+import { updateBandwidth } from "./bandwidth.js";
 
 const execAsync = promisify(exec);
 const HISTORY_FILE = "system-history.json";
@@ -356,6 +357,8 @@ export async function collectSystem(): Promise<SystemStats> {
       tcpEstablished: lastStats.tcpConnections.established,
     });
     historyBuffer = pruneByAge(buf, RETENTION_DAYS * 86_400_000);
+    // Track monthly bandwidth from this entry
+    updateBandwidth(buf[buf.length - 1]);
   }
 
   // Flush to disk every 5 min

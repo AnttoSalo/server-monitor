@@ -32,11 +32,12 @@ The included `ecosystem.config.cjs` starts the service on port 3099 with a 100MB
 
 ### Dashboard (5 tabs)
 
-- **Overview** — CPU, RAM, disk, temperature, and load average gauges with alert animations. Swap bar, disk I/O, network throughput with per-interface breakdown, PM2 processes, systemd services, logged-in users, and system info.
+- **Overview** — CPU, RAM, disk, temperature, and load average gauges with alert animations. Swap bar, disk I/O, network throughput, PM2 processes, systemd services, logged-in users, incidents, monthly bandwidth, and system info.
 - **Processes** — Top 10 processes by CPU and memory, Docker containers (if available), full PM2 process table.
-- **Network** — Connectivity status with ping targets, WAN IP, TCP connection counts, listening ports with service labels, speed test (Cloudflare-based), and connectivity latency history chart.
-- **History** — 10 time-series charts (CPU, memory, network RX/TX, load average, temperature, disk read/write, swap, TCP connections) with 1H/6H/24H/7D period selection, bandwidth totals, and per-chart avg/peak stats.
-- **Logs** — PM2 process log viewer with process selector.
+- **Network** — Connectivity status with ping targets, WAN IP, TCP connection counts, listening ports, speed test (Cloudflare-based), and connectivity latency history chart.
+- **Security** — SSL certificate expiry monitoring, SSH auth log (failed/accepted logins), disk SMART health, and cron job listing.
+- **History** — 9 time-series charts with CSV/JSON export, 1H/6H/24H/7D period selection, bandwidth totals, and per-chart avg/peak stats.
+- **Logs** — PM2 process log viewer with text search, level filtering (error/warn), and process selector.
 
 ### Monitoring Capabilities
 
@@ -60,10 +61,24 @@ The included `ecosystem.config.cjs` starts the service on port 3099 with a 100MB
 | Docker containers | `docker ps` (auto-disabled if absent) | 30s |
 | Package updates | `apt list --upgradable` | 1 hour |
 | Speed test | Cloudflare (on-demand) | Manual |
+| SSL certificate expiry | `openssl s_client` | 1 hour |
+| SSH auth log | `journalctl _COMM=sshd` | 30s |
+| Disk SMART health | `smartctl` (auto-disabled if absent) | 1 hour |
+| Cron jobs | `crontab -l` + `/etc/cron.d/` | 1 hour |
+| Monthly bandwidth | Computed from history entries | Continuous |
+| PM2 restart tracking | Delta detection from PM2 stats | 30s |
 
-### Self-monitoring
+### Additional Features
 
-The monitor tracks its own CPU, memory, and collection time, displayed in a footer bar on the dashboard.
+- **Self-monitoring** — tracks own CPU, memory, and collection time in footer
+- **Discord alerting** — webhook alerts with configurable thresholds and 10-min cooldown
+- **Uptime/downtime tracking** — incident log with duration for connectivity, services, PM2
+- **Scheduled reports** — daily or weekly summary to Discord (configurable)
+- **WebSocket push** — real-time system updates via WS, with polling fallback
+- **Dark/light theme** — toggle in header, persisted to localStorage
+- **Log search/filtering** — text search and level filtering (error/warn)
+- **Data export** — CSV and JSON export of history data
+- **Visual alert animations** — pulsing gauges when thresholds exceeded
 
 ## API Reference
 
@@ -162,6 +177,13 @@ All configuration via environment variables:
 | `PM2_INTERVAL` | `30000` | PM2 stats collection interval (ms) |
 | `PROCESS_INTERVAL` | `15000` | Top processes collection interval (ms) |
 | `CONNECTIVITY_INTERVAL` | `30000` | Connectivity check interval (ms) |
+| `ALERT_WEBHOOK` | `""` (disabled) | Discord/webhook URL for alerts and reports |
+| `ALERT_CPU` | `90` | CPU alert threshold (%) |
+| `ALERT_MEMORY` | `85` | Memory alert threshold (%) |
+| `ALERT_DISK` | `90` | Disk alert threshold (%) |
+| `ALERT_TEMP` | `80` | Temperature alert threshold (°C) |
+| `CERT_DOMAINS` | `""` (disabled) | Comma-separated domains to check SSL expiry |
+| `REPORT_INTERVAL` | `daily` | Scheduled report frequency (`daily`, `weekly`, `off`) |
 
 ## Data Persistence
 
@@ -170,6 +192,9 @@ All configuration via environment variables:
 | `data/system-history.json` | CPU, memory, disk, network, load, temp, swap, TCP | 7 days | 5 minutes |
 | `data/connectivity.json` | Ping target latency and reachability | 24 hours | 5 minutes |
 | `data/speedtest-history.json` | Speed test results | Last 20 | On each test |
+| `data/incidents.json` | Uptime incidents | Last 100 | On state change |
+| `data/bandwidth.json` | Monthly RX/TX totals | 12 months | 5 minutes |
+| `data/pm2-restarts.json` | PM2 restart events | 7 days | On restart detected |
 
 All writes use atomic temp-file-then-rename to prevent corruption.
 
@@ -242,14 +267,24 @@ server-monitor/
 │   │   ├── selfmon.ts        # Monitor's own resource usage
 │   │   ├── users.ts          # Logged-in users
 │   │   ├── updates.ts        # Pending package updates
-│   │   └── docker.ts         # Docker container listing
+│   │   ├── docker.ts         # Docker container listing
+│   │   ├── alerts.ts         # Threshold alerting + Discord webhooks
+│   │   ├── uptime.ts         # Uptime/downtime incident tracking
+│   │   ├── certs.ts          # SSL certificate expiry checking
+│   │   ├── sshauth.ts        # SSH auth log parsing
+│   │   ├── smart.ts          # Disk SMART health
+│   │   ├── crontabs.ts       # Cron job listing
+│   │   ├── bandwidth.ts      # Monthly bandwidth totals
+│   │   ├── restarts.ts       # PM2 restart tracking
+│   │   └── reports.ts        # Scheduled Discord reports
 │   └── routes/
 │       ├── status.ts         # GET /status (consolidated)
 │       ├── system.ts         # GET /system, /system/history
 │       ├── pm2.ts            # GET /pm2, /pm2/logs/:name
 │       ├── connectivity.ts   # GET /connectivity, /connectivity/history
 │       ├── health.ts         # GET /health
-│       └── speedtest.ts      # Speed test (trigger + results + history)
+│       ├── speedtest.ts      # Speed test (trigger + results + history)
+│       └── export.ts         # CSV/JSON data export
 ├── public/
 │   └── index.html            # Built-in web dashboard
 ├── data/                     # Runtime data (gitignored)

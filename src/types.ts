@@ -141,6 +141,47 @@ export interface DockerContainer {
   ports: string;
 }
 
+export interface CertStatus {
+  domain: string;
+  validTo: string;
+  daysRemaining: number;
+  issuer: string;
+  error?: string;
+}
+
+export interface SshAuthEvent {
+  timestamp: string;
+  type: "failed" | "accepted";
+  user: string;
+  ip: string;
+  method: string;
+}
+
+export interface SmartHealth {
+  device: string;
+  status: "healthy" | "warning" | "failing" | "unknown";
+  temperature?: number;
+  detail?: string;
+}
+
+export interface CronJob {
+  user: string;
+  schedule: string;
+  command: string;
+}
+
+export interface BandwidthMonth {
+  month: string;
+  rxGB: number;
+  txGB: number;
+}
+
+export interface PM2RestartEntry {
+  timestamp: string;
+  name: string;
+  restarts: number;
+}
+
 export interface Incident {
   id: string;
   type: string;
@@ -163,6 +204,11 @@ export interface StatusResponse {
   pendingUpdates: PendingUpdates | null;
   docker: DockerContainer[];
   incidents: Incident[];
+  certs: CertStatus[];
+  sshAuth: SshAuthEvent[];
+  smart: SmartHealth[];
+  crontabs: CronJob[];
+  bandwidth: BandwidthMonth[];
   meta: {
     hostname: string;
     platform: string;

@@ -11,6 +11,11 @@ import { getLastUsers } from "../collectors/users.js";
 import { getLastUpdates } from "../collectors/updates.js";
 import { getLastDocker } from "../collectors/docker.js";
 import { getIncidents } from "../collectors/uptime.js";
+import { getLastCerts } from "../collectors/certs.js";
+import { getLastSshAuth } from "../collectors/sshauth.js";
+import { getLastSmart } from "../collectors/smart.js";
+import { getLastCrontabs } from "../collectors/crontabs.js";
+import { getLastBandwidth } from "../collectors/bandwidth.js";
 import type { StatusResponse } from "../types.js";
 
 const router = Router();
@@ -41,6 +46,11 @@ router.get("/", async (_req, res) => {
     pendingUpdates: getLastUpdates(),
     docker: getLastDocker(),
     incidents: await getIncidents(),
+    certs: getLastCerts(),
+    sshAuth: getLastSshAuth(),
+    smart: getLastSmart(),
+    crontabs: getLastCrontabs(),
+    bandwidth: getLastBandwidth(),
     meta: {
       hostname: os.hostname(),
       platform: process.platform,
