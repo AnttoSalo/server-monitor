@@ -141,6 +141,16 @@ export interface DockerContainer {
   ports: string;
 }
 
+export interface Incident {
+  id: string;
+  type: string;
+  detail: string;
+  status: "down" | "recovered";
+  startedAt: string;
+  recoveredAt?: string;
+  durationMs?: number;
+}
+
 export interface StatusResponse {
   system: SystemStats;
   pm2: { processes: PM2Process[] };
@@ -152,6 +162,7 @@ export interface StatusResponse {
   loggedInUsers: LoggedInUser[];
   pendingUpdates: PendingUpdates | null;
   docker: DockerContainer[];
+  incidents: Incident[];
   meta: {
     hostname: string;
     platform: string;

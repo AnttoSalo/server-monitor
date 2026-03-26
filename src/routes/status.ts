@@ -10,6 +10,7 @@ import { getLastSelfMonitor } from "../collectors/selfmon.js";
 import { getLastUsers } from "../collectors/users.js";
 import { getLastUpdates } from "../collectors/updates.js";
 import { getLastDocker } from "../collectors/docker.js";
+import { getIncidents } from "../collectors/uptime.js";
 import type { StatusResponse } from "../types.js";
 
 const router = Router();
@@ -27,7 +28,7 @@ const EMPTY_SYSTEM = {
   tcpConnections: { established: 0, listening: 0, timeWait: 0, total: 0, listeningPorts: [] },
 };
 
-router.get("/", (_req, res) => {
+router.get("/", async (_req, res) => {
   const response: StatusResponse = {
     system: getLastStats() ?? EMPTY_SYSTEM,
     pm2: { processes: getLastProcesses() },
@@ -39,6 +40,7 @@ router.get("/", (_req, res) => {
     loggedInUsers: getLastUsers(),
     pendingUpdates: getLastUpdates(),
     docker: getLastDocker(),
+    incidents: await getIncidents(),
     meta: {
       hostname: os.hostname(),
       platform: process.platform,

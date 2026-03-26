@@ -10,6 +10,12 @@ import { collectSelfMonitor, setCollectionMs } from "./collectors/selfmon.js";
 import { collectUsers } from "./collectors/users.js";
 import { collectUpdates } from "./collectors/updates.js";
 import { collectDocker } from "./collectors/docker.js";
+import { checkAlerts } from "./collectors/alerts.js";
+import { trackUptime } from "./collectors/uptime.js";
+import { getLastStats } from "./collectors/system.js";
+import { getLastProcesses } from "./collectors/pm2.js";
+import { getLastConnectivity } from "./collectors/connectivity.js";
+import { getLastServices } from "./collectors/services.js";
 import { authMiddleware } from "./auth.js";
 import statusRouter from "./routes/status.js";
 import systemRouter from "./routes/system.js";
@@ -73,6 +79,16 @@ async function startCollectors() {
     await collectSystem().catch(console.error);
     setCollectionMs(Math.round(performance.now() - t));
     collectSelfMonitor();
+
+    // Check alerts and track uptime after each collection
+    const sys = getLastStats();
+    const pm2 = getLastProcesses();
+    const conn = getLastConnectivity();
+    const svcs = getLastServices();
+    if (sys) {
+      checkAlerts(sys, pm2, conn, svcs);
+      trackUptime(conn, svcs, pm2).catch(() => {});
+    }
   }, SYSTEM_INTERVAL);
 
   setInterval(() => { collectPM2().catch(console.error); }, PM2_INTERVAL);

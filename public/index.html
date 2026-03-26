@@ -126,6 +126,7 @@
     <span id="uptime-display">—</span>
     <span id="last-updated">—</span>
     <span id="updates-badge"></span>
+    <span id="alert-indicator"></span>
   </div>
 </header>
 
@@ -165,6 +166,7 @@
     </div>
     <div id="services-card" style="margin-top:16px"></div>
     <div id="users-card" style="margin-top:16px"></div>
+    <div id="incidents-card" style="margin-top:16px"></div>
     <div id="sysinfo-card" style="margin-top:16px"></div>
   </div>
 
@@ -283,6 +285,14 @@ function formatUptime(ms) {
 function formatOsUptime(sec) {
   const d = Math.floor(sec / 86400), h = Math.floor((sec % 86400) / 3600);
   return d > 0 ? d + 'd ' + h + 'h' : h + 'h';
+}
+function formatDuration(ms) {
+  const s = Math.floor(ms / 1000);
+  if (s < 60) return s + 's';
+  const m = Math.floor(s / 60);
+  if (m < 60) return m + 'm ' + (s % 60) + 's';
+  const h = Math.floor(m / 60);
+  return h + 'h ' + (m % 60) + 'm';
 }
 function formatSpeed(kbps) {
   return kbps >= 1024 ? (kbps/1024).toFixed(1) + ' MB/s' : kbps.toFixed(0) + ' KB/s';
@@ -473,6 +483,40 @@ function renderOverview(data) {
     </div>`;
   } else {
     usersCard.innerHTML = '';
+  }
+
+  // Incidents
+  const incidentsCard = document.getElementById('incidents-card');
+  const incidents = data.incidents || [];
+  const activeIncidents = incidents.filter(i => i.status === 'down');
+  const recentIncidents = incidents.slice(-10).reverse();
+
+  // Alert indicator in header
+  const alertEl = document.getElementById('alert-indicator');
+  if (activeIncidents.length > 0) {
+    alertEl.innerHTML = `<span style="color:var(--red);font-weight:600">${activeIncidents.length} active</span>`;
+  } else {
+    alertEl.innerHTML = '';
+  }
+
+  if (recentIncidents.length > 0) {
+    incidentsCard.innerHTML = `<div class="card"><div class="card-title">Incidents</div>
+      <div style="max-height:200px;overflow-y:auto">${recentIncidents.map(inc => {
+        const isDown = inc.status === 'down';
+        const dot = isDown ? 'var(--red)' : 'var(--green)';
+        const dur = inc.durationMs ? formatDuration(inc.durationMs) : 'ongoing';
+        const time = inc.recoveredAt ? new Date(inc.recoveredAt).toLocaleTimeString() : new Date(inc.startedAt).toLocaleTimeString();
+        return `<div style="display:flex;align-items:center;gap:8px;padding:4px 0;border-bottom:1px solid rgba(255,255,255,0.03);font-size:11px">
+          <span class="status-dot" style="background:${dot}"></span>
+          <span style="flex:1">${inc.type}</span>
+          <span style="color:var(--muted)">${inc.detail}</span>
+          <span style="color:var(--muted);min-width:60px;text-align:right">${dur}</span>
+          <span style="color:var(--muted);min-width:70px;text-align:right">${time}</span>
+        </div>`;
+      }).join('')}</div></div>`;
+  } else {
+    incidentsCard.innerHTML = `<div class="card"><div class="card-title">Incidents</div>
+      <div style="color:var(--green);font-size:11px;padding:4px 0">All systems operational</div></div>`;
   }
 
   // System info
