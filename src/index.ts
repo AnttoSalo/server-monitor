@@ -16,6 +16,7 @@ import systemRouter from "./routes/system.js";
 import pm2Router from "./routes/pm2.js";
 import connectivityRouter from "./routes/connectivity.js";
 import healthRouter from "./routes/health.js";
+import speedtestRouter from "./routes/speedtest.js";
 
 const PORT = parseInt(process.env.PORT || "3099");
 const BASE = process.env.BASE_PATH || "";
@@ -34,6 +35,7 @@ app.use(BASE + "/system", systemRouter);
 app.use(BASE + "/pm2", pm2Router);
 app.use(BASE + "/connectivity", connectivityRouter);
 app.use(BASE + "/health", healthRouter);
+app.use(BASE + "/speedtest", speedtestRouter);
 
 app.use(BASE + "/", express.static(join(import.meta.dirname, "..", "public")));
 

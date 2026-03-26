@@ -93,6 +93,16 @@ export interface ConnectivityHistoryEntry {
   targets: PingTarget[];
 }
 
+export interface SpeedTestResult {
+  timestamp: string;
+  downloadMbps: number;
+  uploadMbps: number;
+  latencyMs: number;
+  status: "idle" | "running" | "completed" | "failed";
+  phase?: string;
+  error?: string;
+}
+
 export interface SysInfo {
   os: string;
   kernel: string;

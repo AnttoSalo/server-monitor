@@ -202,9 +202,19 @@
         <div id="listening-ports"></div>
       </div>
     </div>
-    <div class="card" style="margin-top:16px">
-      <div class="card-title">Connectivity History (Latency)</div>
-      <div class="chart-container" style="height:200px"><canvas class="chart-canvas" id="chart-conn-history"></canvas></div>
+    <div class="grid grid-2" style="margin-top:16px">
+      <div class="card">
+        <div class="card-title">Speed Test</div>
+        <div style="display:flex;align-items:center;gap:12px;margin-bottom:12px">
+          <button id="speedtest-btn" class="period-btn" style="border-color:var(--cyan);color:var(--cyan)">Run Speed Test</button>
+          <span id="speedtest-status" style="font-size:10px;color:var(--muted)"></span>
+        </div>
+        <div id="speedtest-result"></div>
+      </div>
+      <div class="card">
+        <div class="card-title">Connectivity History (Latency)</div>
+        <div class="chart-container" style="height:160px"><canvas class="chart-canvas" id="chart-conn-history"></canvas></div>
+      </div>
     </div>
   </div>
 
@@ -817,6 +827,71 @@ async function loadConnectivityHistory() {
     // Silently fail if endpoint not available
   }
 }
+
+// --- Speed Test ---
+let speedtestPollTimer = null;
+
+function renderSpeedTestResult(data) {
+  const statusEl = document.getElementById('speedtest-status');
+  const resultEl = document.getElementById('speedtest-result');
+  const btn = document.getElementById('speedtest-btn');
+
+  if (data.status === 'running') {
+    btn.disabled = true;
+    btn.textContent = 'Testing...';
+    const phaseText = data.phase === 'download' ? 'Measuring download...' : data.phase === 'upload' ? 'Measuring upload...' : data.phase === 'latency' ? 'Measuring latency...' : 'Running...';
+    statusEl.textContent = phaseText;
+    statusEl.style.color = 'var(--cyan)';
+    // Show partial results
+    let partial = '';
+    if (data.latencyMs > 0) partial += `<span style="color:var(--muted)">Latency: ${data.latencyMs}ms</span> `;
+    if (data.downloadMbps > 0) partial += `<span style="color:var(--muted)">Down: ${data.downloadMbps} Mbps</span> `;
+    resultEl.innerHTML = partial;
+  } else {
+    btn.disabled = false;
+    btn.textContent = 'Run Speed Test';
+    if (speedtestPollTimer) { clearInterval(speedtestPollTimer); speedtestPollTimer = null; }
+
+    if (data.status === 'completed') {
+      statusEl.textContent = 'Last tested: ' + new Date(data.timestamp).toLocaleTimeString();
+      statusEl.style.color = 'var(--muted)';
+      resultEl.innerHTML = `<div style="display:flex;gap:24px;padding:8px 0;flex-wrap:wrap">
+        <div><div style="font-size:22px;font-weight:700;color:var(--green)">${data.downloadMbps}</div><div style="font-size:9px;color:var(--muted);text-transform:uppercase">Download Mbps</div></div>
+        <div><div style="font-size:22px;font-weight:700;color:var(--amber)">${data.uploadMbps}</div><div style="font-size:9px;color:var(--muted);text-transform:uppercase">Upload Mbps</div></div>
+        <div><div style="font-size:22px;font-weight:700;color:var(--cyan)">${data.latencyMs}ms</div><div style="font-size:9px;color:var(--muted);text-transform:uppercase">Latency</div></div>
+      </div>`;
+    } else if (data.status === 'failed') {
+      statusEl.textContent = 'Test failed';
+      statusEl.style.color = 'var(--red)';
+      resultEl.innerHTML = `<span style="color:var(--red);font-size:11px">${data.error || 'Unknown error'}</span>`;
+    } else {
+      statusEl.textContent = '';
+      resultEl.innerHTML = '<span style="color:var(--muted);font-size:11px">Click "Run Speed Test" to measure bandwidth</span>';
+    }
+  }
+}
+
+async function pollSpeedTest() {
+  try {
+    const res = await fetch(API + '/speedtest');
+    const data = await res.json();
+    renderSpeedTestResult(data);
+  } catch {}
+}
+
+document.getElementById('speedtest-btn').addEventListener('click', async () => {
+  try {
+    const res = await fetch(API + '/speedtest/run', { method: 'POST' });
+    if (res.status === 409) return; // already running
+    renderSpeedTestResult({ status: 'running', phase: 'latency', downloadMbps: 0, uploadMbps: 0, latencyMs: 0 });
+    speedtestPollTimer = setInterval(pollSpeedTest, 2000);
+  } catch (e) {
+    document.getElementById('speedtest-status').textContent = 'Error: ' + e.message;
+  }
+});
+
+// Load last result on page load
+pollSpeedTest();
 
 function formatBandwidthTotal(kb) {
   if (kb >= 1048576) return (kb / 1048576).toFixed(2) + ' GB';
