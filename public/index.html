@@ -230,8 +230,7 @@
     <div class="grid grid-2" id="history-charts">
       <div class="chart-container"><div class="chart-title"><span class="chart-label">CPU %</span> <span class="chart-stats" id="stats-cpu"></span></div><canvas class="chart-canvas" id="chart-cpu"></canvas></div>
       <div class="chart-container"><div class="chart-title"><span class="chart-label">Memory %</span> <span class="chart-stats" id="stats-mem"></span></div><canvas class="chart-canvas" id="chart-mem"></canvas></div>
-      <div class="chart-container"><div class="chart-title"><span class="chart-label" id="label-rx">Network RX</span> <span class="chart-stats" id="stats-rx"></span></div><canvas class="chart-canvas" id="chart-rx"></canvas></div>
-      <div class="chart-container"><div class="chart-title"><span class="chart-label" id="label-tx">Network TX</span> <span class="chart-stats" id="stats-tx"></span></div><canvas class="chart-canvas" id="chart-tx"></canvas></div>
+      <div class="chart-container"><div class="chart-title"><span class="chart-label">Network RX/TX</span> <span class="chart-stats" id="stats-net"></span></div><canvas class="chart-canvas" id="chart-net"></canvas></div>
       <div class="chart-container"><div class="chart-title"><span class="chart-label">Load Avg (1m)</span> <span class="chart-stats" id="stats-load"></span></div><canvas class="chart-canvas" id="chart-load"></canvas></div>
       <div class="chart-container"><div class="chart-title"><span class="chart-label">Temperature C</span> <span class="chart-stats" id="stats-temp"></span></div><canvas class="chart-canvas" id="chart-temp"></canvas></div>
       <div class="chart-container"><div class="chart-title"><span class="chart-label" id="label-diskr">Disk Read</span> <span class="chart-stats" id="stats-diskr"></span></div><canvas class="chart-canvas" id="chart-diskr"></canvas></div>
@@ -311,11 +310,11 @@ function makeGauge(pct, label, detail, color, alertClass) {
   </div>`;
 }
 
-function makeTempGauge(tempC) {
+function makeTempGauge(tempC, alertClass) {
   const color = tempC > 80 ? 'var(--red)' : tempC > 60 ? 'var(--amber)' : 'var(--green)';
   const pct = Math.min(tempC / 100 * 100, 100);
   const r = 38, c = 2 * Math.PI * r, offset = c * (1 - pct / 100);
-  return `<div class="gauge">
+  return `<div class="gauge ${alertClass || ''}">
     <svg viewBox="0 0 100 100">
       <circle cx="50" cy="50" r="${r}" fill="none" stroke="rgba(255,255,255,0.05)" stroke-width="6"/>
       <circle cx="50" cy="50" r="${r}" fill="none" stroke="${color}" stroke-width="6"
@@ -351,9 +350,28 @@ function renderOverview(data) {
     makeGauge(s.cpu, 'CPU', cores + ' cores', cpuColor, cpuAlert) +
     makeGauge(s.memory.percent, 'RAM', s.memory.used + '/' + s.memory.total + ' GB', memColor, memAlert) +
     makeGauge(diskPct, 'Disk', s.disk[0] ? s.disk[0].mount : '', diskColor, diskAlert);
-  if (s.temperature) gaugesHtml += makeTempGauge(s.temperature.maxC);
+  if (s.temperature) {
+    const tempAlert = s.temperature.maxC > 80 ? 'alert-critical' : s.temperature.maxC > 70 ? 'alert-warning' : '';
+    gaugesHtml += makeTempGauge(s.temperature.maxC, tempAlert);
+  }
   gaugesHtml += makeGauge(loadPct, 'Load', loadDetail, loadColor);
   document.getElementById('gauges').innerHTML = gaugesHtml;
+
+  // Temperature zones tooltip below gauges
+  if (s.temperature && s.temperature.zones && s.temperature.zones.length > 1) {
+    const zonesHtml = s.temperature.zones
+      .filter(z => z.tempC > 0)
+      .sort((a, b) => b.tempC - a.tempC)
+      .slice(0, 6)
+      .map(z => {
+        const c = z.tempC > 80 ? 'var(--red)' : z.tempC > 60 ? 'var(--amber)' : 'var(--muted)';
+        return `<span style="font-size:9px;color:${c}">${z.zone}: ${z.tempC}°C</span>`;
+      }).join(' &nbsp; ');
+    document.getElementById('gauges').insertAdjacentHTML('afterend',
+      `<div id="temp-zones" style="text-align:center;padding:2px 0;margin-top:-4px">${zonesHtml}</div>`);
+    const old = document.querySelectorAll('#temp-zones');
+    if (old.length > 1) old[0].remove();
+  }
 
   // Swap bar
   const swapEl = document.getElementById('swap-bar');
@@ -619,27 +637,16 @@ function renderNetwork(data) {
 
   // Listening ports
   const portsEl = document.getElementById('listening-ports');
-  const ports = data.listeningPorts || statusData.listeningPorts || [];
+  const ports = (statusData.system.tcpConnections || {}).listeningPorts || [];
   if (ports.length > 0) {
-    portsEl.innerHTML = `<div style="max-height:300px;overflow-y:auto">
-      <table>
-        <thead><tr><th>Port</th><th>Service</th><th>PID</th><th>Process</th><th>Address</th></tr></thead>
-        <tbody>${ports.map(p => {
-          const portNum = p.port || p.localPort || 0;
-          const knownLabel = KNOWN_PORTS[portNum] || '';
-          const svcLabel = p.service || knownLabel;
-          return `<tr>
-            <td style="color:var(--cyan)">${portNum}</td>
-            <td>${svcLabel ? '<span style="color:var(--purple)">' + svcLabel + '</span>' : '<span style="color:var(--muted)">—</span>'}</td>
-            <td style="color:var(--muted)">${p.pid || '—'}</td>
-            <td style="color:var(--muted);max-width:150px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${p.process || p.name || '—'}</td>
-            <td style="color:var(--muted)">${p.address || p.localAddress || '*'}</td>
-          </tr>`;
-        }).join('')}</tbody>
-      </table>
-    </div>`;
+    portsEl.innerHTML = `<div style="display:flex;flex-wrap:wrap;gap:6px;padding:4px 0">${ports.map(port => {
+      const label = KNOWN_PORTS[port];
+      return `<span style="display:inline-flex;align-items:center;gap:4px;padding:3px 8px;background:rgba(255,255,255,0.03);border-radius:4px;font-size:11px">
+        <span style="color:var(--cyan)">${port}</span>${label ? '<span style="color:var(--purple);font-size:9px">' + label + '</span>' : ''}
+      </span>`;
+    }).join('')}</div>`;
   } else {
-    portsEl.innerHTML = '<div style="color:var(--muted);font-size:11px;padding:8px 0">No listening port data available</div>';
+    portsEl.innerHTML = '<div style="color:var(--muted);font-size:11px;padding:8px 0">No listening ports detected</div>';
   }
 
   // Load connectivity history chart
@@ -647,6 +654,62 @@ function renderNetwork(data) {
 }
 
 // --- Charts ---
+function drawDualLineChart(canvasId, entries, key1, key2, color1, color2, label1, label2) {
+  const canvas = document.getElementById(canvasId);
+  const ctx = canvas.getContext('2d');
+  const rect = canvas.parentElement.getBoundingClientRect();
+  canvas.width = rect.width * 2; canvas.height = rect.height * 2;
+  ctx.scale(2, 2);
+  const w = rect.width, h = rect.height;
+  const pad = { top: 28, right: 12, bottom: 20, left: 40 };
+
+  let v1 = entries.map(e => e[key1] ?? 0);
+  let v2 = entries.map(e => e[key2] ?? 0);
+  if (v1.length < 2) { ctx.fillStyle = 'rgba(255,255,255,0.2)'; ctx.font = '11px monospace'; ctx.fillText('Waiting for data...', w/2 - 50, h/2); return; }
+
+  let unit = 'KB/s';
+  const rawMax = Math.max(...v1, ...v2, 0);
+  if (rawMax >= 1024) { v1 = v1.map(v => v/1024); v2 = v2.map(v => v/1024); unit = 'MB/s'; }
+
+  const max = Math.max(...v1, ...v2, 0.1) * 1.1;
+  const plotW = w - pad.left - pad.right, plotH = h - pad.top - pad.bottom;
+
+  // Legend
+  ctx.font = '8px monospace';
+  ctx.fillStyle = color1; ctx.fillRect(w - 100, 10, 8, 8);
+  ctx.fillStyle = 'rgba(255,255,255,0.5)'; ctx.textAlign = 'left'; ctx.fillText(label1, w - 90, 17);
+  ctx.fillStyle = color2; ctx.fillRect(w - 55, 10, 8, 8);
+  ctx.fillStyle = 'rgba(255,255,255,0.5)'; ctx.fillText(label2, w - 45, 17);
+
+  // Grid
+  ctx.strokeStyle = 'rgba(255,255,255,0.04)'; ctx.lineWidth = 0.5;
+  for (let i = 0; i <= 4; i++) {
+    const y = pad.top + (plotH / 4) * i;
+    ctx.beginPath(); ctx.moveTo(pad.left, y); ctx.lineTo(w - pad.right, y); ctx.stroke();
+    ctx.fillStyle = 'rgba(255,255,255,0.25)'; ctx.font = '8px monospace'; ctx.textAlign = 'right';
+    const axisVal = max - (max/4)*i;
+    ctx.fillText(axisVal >= 10 ? Math.round(axisVal).toString() : axisVal.toFixed(1), pad.left - 4, y + 3);
+  }
+
+  // Draw both lines
+  [v1, v2].forEach((values, idx) => {
+    const color = idx === 0 ? color1 : color2;
+    ctx.beginPath();
+    values.forEach((v, i) => {
+      const x = pad.left + (i / (values.length - 1)) * plotW;
+      const y = pad.top + plotH - (v / max) * plotH;
+      i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+    });
+    ctx.strokeStyle = color; ctx.lineWidth = 1.5; ctx.stroke();
+    const lastVal = values[values.length - 1];
+    const lastX = pad.left + plotW;
+    const lastY = pad.top + plotH - (lastVal / max) * plotH;
+    ctx.beginPath(); ctx.arc(lastX, lastY, 3, 0, Math.PI * 2); ctx.fillStyle = color; ctx.fill();
+    ctx.fillStyle = 'rgba(255,255,255,0.6)'; ctx.font = '8px monospace'; ctx.textAlign = 'right';
+    ctx.fillText((lastVal >= 10 ? Math.round(lastVal) : lastVal.toFixed(1)) + ' ' + unit, lastX - 6, lastY + (idx === 0 ? -6 : 12));
+  });
+}
+
 function drawChart(canvasId, entries, key, color, isBandwidth) {
   const canvas = document.getElementById(canvasId);
   const ctx = canvas.getContext('2d');
@@ -886,7 +949,7 @@ document.getElementById('speedtest-btn').addEventListener('click', async () => {
     const res = await fetch(API + '/speedtest/run', { method: 'POST' });
     if (res.status === 409) return; // already running
     renderSpeedTestResult({ status: 'running', phase: 'latency', downloadMbps: 0, uploadMbps: 0, latencyMs: 0 });
-    speedtestPollTimer = setInterval(pollSpeedTest, 2000);
+    speedtestPollTimer = setInterval(pollSpeedTest, 3000);
   } catch (e) {
     document.getElementById('speedtest-status').textContent = 'Error: ' + e.message;
   }
@@ -923,8 +986,10 @@ async function loadHistory() {
 
     drawChart('chart-cpu', e, 'cpu', '#22d3ee', false);
     drawChart('chart-mem', e, 'memPercent', '#4ade80', false);
-    drawChart('chart-rx', e, 'rxKBps', '#60a5fa', true);
-    drawChart('chart-tx', e, 'txKBps', '#fbbf24', true);
+    // Combined RX/TX dual-line chart
+    if (e.length >= 2) {
+      drawDualLineChart('chart-net', e, 'rxKBps', 'txKBps', '#60a5fa', '#fbbf24', 'RX', 'TX');
+    }
     drawChart('chart-load', e, 'load1', '#a78bfa', false);
     drawChart('chart-temp', e, 'tempC', '#fb923c', false);
     drawChart('chart-diskr', e, 'diskReadKBps', '#34d399', true);
@@ -935,8 +1000,9 @@ async function loadHistory() {
     const el = id => document.getElementById(id);
     el('stats-cpu').textContent = formatStatsText(computeStats(e, 'cpu'), false);
     el('stats-mem').textContent = formatStatsText(computeStats(e, 'memPercent'), false);
-    el('stats-rx').textContent = formatStatsText(computeStats(e, 'rxKBps'), true);
-    el('stats-tx').textContent = formatStatsText(computeStats(e, 'txKBps'), true);
+    const rxStats = computeStats(e, 'rxKBps');
+    const txStats = computeStats(e, 'txKBps');
+    el('stats-net').textContent = rxStats && txStats ? 'RX avg: ' + formatSpeed(rxStats.avg) + ' | TX avg: ' + formatSpeed(txStats.avg) : '';
     el('stats-load').textContent = formatStatsText(computeStats(e, 'load1'), false);
     el('stats-temp').textContent = formatStatsText(computeStats(e, 'tempC'), false);
     el('stats-diskr').textContent = formatStatsText(computeStats(e, 'diskReadKBps'), true);
@@ -1000,7 +1066,9 @@ async function poll() {
 poll();
 loadHistory();
 setInterval(poll, 10000);
-setInterval(loadHistory, 60000);
+setInterval(() => {
+  if (document.querySelector('[data-tab="history"]').classList.contains('active')) loadHistory();
+}, 60000);
 
 document.addEventListener('keydown', e => {
   const idx = parseInt(e.key) - 1;

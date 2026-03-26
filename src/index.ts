@@ -20,11 +20,27 @@ import speedtestRouter from "./routes/speedtest.js";
 
 const PORT = parseInt(process.env.PORT || "3099");
 const BASE = process.env.BASE_PATH || "";
+const SYSTEM_INTERVAL = parseInt(process.env.SYSTEM_INTERVAL || "10000");
+const PM2_INTERVAL = parseInt(process.env.PM2_INTERVAL || "30000");
+const PROCESS_INTERVAL = parseInt(process.env.PROCESS_INTERVAL || "15000");
+const CONNECTIVITY_INTERVAL = parseInt(process.env.CONNECTIVITY_INTERVAL || "30000");
 const app = express();
 
 app.use((_req, res, next) => {
   res.header("Access-Control-Allow-Origin", "*");
   res.header("Access-Control-Allow-Headers", "Content-Type");
+  next();
+});
+
+// Log slow requests (>500ms) and errors
+app.use((req, res, next) => {
+  const start = performance.now();
+  res.on("finish", () => {
+    const ms = Math.round(performance.now() - start);
+    if (ms > 500 || res.statusCode >= 400) {
+      console.log(`${req.method} ${req.path} ${res.statusCode} ${ms}ms`);
+    }
+  });
   next();
 });
 
@@ -52,29 +68,19 @@ async function startCollectors() {
   collectSelfMonitor();
   console.log("Initial collection complete");
 
-  // System stats every 10s (with self-monitor timing)
   setInterval(async () => {
     const t = performance.now();
     await collectSystem().catch(console.error);
     setCollectionMs(Math.round(performance.now() - t));
     collectSelfMonitor();
-  }, 10_000);
+  }, SYSTEM_INTERVAL);
 
-  // PM2 stats every 30s (reduced from 10s)
-  setInterval(() => { collectPM2().catch(console.error); }, 30_000);
-
-  // Top processes every 15s (reduced from 10s)
-  setInterval(() => { collectTopProcesses().catch(console.error); }, 15_000);
-
-  // Connectivity every 30s
-  setInterval(() => { collectConnectivity().catch(console.error); }, 30_000);
-
-  // Services + users every 30s
-  setInterval(() => { collectServices().catch(console.error); }, 30_000);
-  setInterval(() => { collectUsers().catch(console.error); }, 30_000);
-
-  // Docker every 30s
-  setInterval(() => { collectDocker().catch(console.error); }, 30_000);
+  setInterval(() => { collectPM2().catch(console.error); }, PM2_INTERVAL);
+  setInterval(() => { collectTopProcesses().catch(console.error); }, PROCESS_INTERVAL);
+  setInterval(() => { collectConnectivity().catch(console.error); }, CONNECTIVITY_INTERVAL);
+  setInterval(() => { collectServices().catch(console.error); }, CONNECTIVITY_INTERVAL);
+  setInterval(() => { collectUsers().catch(console.error); }, CONNECTIVITY_INTERVAL);
+  setInterval(() => { collectDocker().catch(console.error); }, CONNECTIVITY_INTERVAL);
 
   // Package updates every 1 hour
   setInterval(() => { collectUpdates().catch(console.error); }, 3_600_000);

@@ -1,7 +1,10 @@
 import { Router } from "express";
 import type { SpeedTestResult } from "../types.js";
+import { loadJson, saveJson } from "../store.js";
 
 const router = Router();
+const HISTORY_FILE = "speedtest-history.json";
+const MAX_HISTORY = 20;
 
 let lastResult: SpeedTestResult = {
   timestamp: "",
@@ -11,11 +14,15 @@ let lastResult: SpeedTestResult = {
   status: "idle",
 };
 
+// Load last result from disk on startup
+loadJson<SpeedTestResult[]>(HISTORY_FILE, []).then((history) => {
+  if (history.length > 0) lastResult = history[history.length - 1];
+});
+
 async function measureDownload(): Promise<number> {
   const bytes = 25_000_000;
-  const url = `https://speed.cloudflare.com/__down?bytes=${bytes}`;
   const start = performance.now();
-  const res = await fetch(url);
+  const res = await fetch(`https://speed.cloudflare.com/__down?bytes=${bytes}`);
   const data = await res.arrayBuffer();
   const elapsed = (performance.now() - start) / 1000;
   if (elapsed === 0) return 0;
@@ -42,6 +49,13 @@ async function measureLatency(): Promise<number> {
   return Math.round(performance.now() - start);
 }
 
+async function persistResult(result: SpeedTestResult): Promise<void> {
+  const history = await loadJson<SpeedTestResult[]>(HISTORY_FILE, []);
+  history.push(result);
+  while (history.length > MAX_HISTORY) history.shift();
+  await saveJson(HISTORY_FILE, history);
+}
+
 async function runTest(): Promise<void> {
   try {
     lastResult = { ...lastResult, status: "running", phase: "latency", error: undefined };
@@ -61,10 +75,12 @@ async function runTest(): Promise<void> {
       status: "completed",
       phase: "done",
     };
+    persistResult(lastResult).catch(() => {});
   } catch (err) {
     lastResult = {
       ...lastResult,
       status: "failed",
+      timestamp: new Date().toISOString(),
       phase: undefined,
       error: err instanceof Error ? err.message : "Unknown error",
     };
@@ -73,6 +89,11 @@ async function runTest(): Promise<void> {
 
 router.get("/", (_req, res) => {
   res.json(lastResult);
+});
+
+router.get("/history", async (_req, res) => {
+  const history = await loadJson<SpeedTestResult[]>(HISTORY_FILE, []);
+  res.json({ entries: history });
 });
 
 router.post("/run", (_req, res) => {
