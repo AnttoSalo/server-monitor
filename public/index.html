@@ -163,6 +163,7 @@
   <!-- OVERVIEW -->
   <div class="tab-content active" id="tab-overview">
     <div class="gauge-row" id="gauges"></div>
+    <div id="stress-summary" style="margin-top:12px"></div>
     <div id="swap-bar" style="margin-top:12px"></div>
     <div class="grid grid-3" style="margin-top:16px">
       <div class="card">
@@ -398,6 +399,78 @@ function makeTempGauge(tempC, alertClass) {
   </div>`;
 }
 
+// --- Stress summary: translate top processes into plain English ---
+function describeProcess(cmd) {
+  const c = cmd.toLowerCase();
+  // Build tools
+  if (c.includes('tsc') && !c.includes('tsx')) return 'compiling TypeScript';
+  if (c.includes('webpack')) return 'bundling with Webpack';
+  if (c.includes('vite') && !c.includes('vitest')) return 'building with Vite';
+  if (c.includes('esbuild')) return 'bundling with esbuild';
+  if (c.includes('turbopack') || c.includes('next build')) return 'building Next.js';
+  if (c.includes('npm run build') || c.includes('npm run compile')) return 'running a build';
+  if (c.includes('gcc') || c.includes('g++') || c.includes('make')) return 'compiling C/C++';
+  if (c.includes('rustc') || c.includes('cargo build')) return 'compiling Rust';
+  if (c.includes('go build')) return 'compiling Go';
+  // Package managers
+  if (c.includes('npm install') || c.includes('npm ci')) return 'installing npm packages';
+  if (c.includes('apt') || c.includes('dpkg')) return 'installing/updating system packages';
+  // Frameworks
+  if (c.includes('next-server')) return 'running Next.js';
+  if (c.includes('nuxt')) return 'running Nuxt';
+  if (c.includes('nest')) return 'running NestJS';
+  // Runtimes
+  if (c.includes('python') || c.includes('python3')) return 'running a Python script';
+  if (c.includes('java ') || c.includes('java\t')) return 'running Java';
+  // System
+  if (c.includes('pm2')) return 'PM2 process manager working';
+  if (c.includes('docker')) return 'Docker operation';
+  if (c.includes('cloudflared')) return 'Cloudflare tunnel';
+  if (c.includes('nginx')) return 'nginx web server';
+  if (c.includes('postgres') || c.includes('psql')) return 'PostgreSQL database';
+  if (c.includes('mysql') || c.includes('mariaddb')) return 'MySQL database';
+  if (c.includes('redis')) return 'Redis cache';
+  if (c.includes('mongod')) return 'MongoDB database';
+  // Node apps — try to extract a friendly name from the path
+  if (c.includes('node ') || c.includes('node\t')) {
+    const pathMatch = cmd.match(/\/([^/]+?)(?:\/(?:dist|src|server|index|app)\b|\.(?:js|ts))/i);
+    if (pathMatch) return pathMatch[1].replace(/[_-]/g, ' ');
+    return 'a Node.js app';
+  }
+  return null;
+}
+
+function getStressSummary(data) {
+  const cpu = data.system.cpu;
+  if (cpu < 40) return null; // not stressed
+
+  const procs = (data.topProcesses?.byCpu || []).filter(p => p.cpu > 5);
+  if (procs.length === 0) return null;
+
+  const descriptions = [];
+  for (const p of procs.slice(0, 3)) {
+    const desc = describeProcess(p.command);
+    if (desc) {
+      descriptions.push({ desc, cpu: p.cpu });
+    }
+  }
+
+  if (descriptions.length === 0) return null;
+
+  let level, icon;
+  if (cpu > 90) { level = 'under heavy load'; icon = '🔴'; }
+  else if (cpu > 70) { level = 'moderately busy'; icon = '🟠'; }
+  else { level = 'a bit busy'; icon = '🟡'; }
+
+  const parts = descriptions.map(d => `<strong>${d.desc}</strong> (${d.cpu}% CPU)`);
+  let text = `${icon} Server is ${level}: `;
+  if (parts.length === 1) text += parts[0];
+  else if (parts.length === 2) text += parts[0] + ' and ' + parts[1];
+  else text += parts.slice(0, -1).join(', ') + ', and ' + parts[parts.length - 1];
+
+  return text;
+}
+
 // --- Render ---
 function renderOverview(data) {
   const s = data.system, m = data.meta;
@@ -442,6 +515,15 @@ function renderOverview(data) {
       `<div id="temp-zones" style="text-align:center;padding:2px 0;margin-top:-4px">${zonesHtml}</div>`);
     const old = document.querySelectorAll('#temp-zones');
     if (old.length > 1) old[0].remove();
+  }
+
+  // Stress summary
+  const stressEl = document.getElementById('stress-summary');
+  const summary = getStressSummary(data);
+  if (summary) {
+    stressEl.innerHTML = `<div class="card" style="padding:10px 16px;font-size:12px;line-height:1.6">${summary}</div>`;
+  } else {
+    stressEl.innerHTML = '';
   }
 
   // Swap bar
