@@ -182,6 +182,30 @@ export interface PM2RestartEntry {
   restarts: number;
 }
 
+export interface Activity {
+  type: "build" | "serve" | "database" | "system" | "download" | "unknown";
+  label: string;
+  processes: string[];
+  cpuPercent: number;
+  memPercent: number;
+}
+
+export interface ActivityState {
+  level: "idle" | "light" | "moderate" | "heavy" | "critical";
+  summary: string;
+  details: string[];
+  activities: Activity[];
+  startedAt: string | null;
+  durationMs: number;
+  trend: "rising" | "stable" | "falling";
+  resources: {
+    cpu: { percent: number; note: string };
+    memory: { percent: number; note: string };
+    diskIO: { readKBps: number; writeKBps: number; note: string };
+    network: { rxKBps: number; txKBps: number; note: string };
+  };
+}
+
 export interface Incident {
   id: string;
   type: string;
@@ -209,6 +233,7 @@ export interface StatusResponse {
   smart: SmartHealth[];
   crontabs: CronJob[];
   bandwidth: BandwidthMonth[];
+  activity: ActivityState;
   meta: {
     hostname: string;
     platform: string;
@@ -217,4 +242,76 @@ export interface StatusResponse {
     nodeVersion: string;
     monitorVersion: string;
   };
+}
+
+export interface StatsResponse {
+  system: {
+    cpu: { avg: number; median: number; peak: number; p95: number; timeAbove90Pct: number };
+    memory: { avgPercent: number; peakPercent: number; peakTime: string; trend: "rising" | "falling" | "stable" };
+    disk: { avgPercent: number; avgReadKBps: number; avgWriteKBps: number; readWriteRatio: number };
+    load: { avg: number; peak: number; normalized: number };
+    temperature: { avg: number; peak: number; timeAbove80: number };
+    swap: { avg: number; peak: number };
+  };
+  network: {
+    totalRxMB: number; totalTxMB: number;
+    avgRxKBps: number; avgTxKBps: number;
+    peakRxKBps: number; peakTxKBps: number;
+    monthlyBandwidth: BandwidthMonth[];
+    ytdRxGB: number; ytdTxGB: number;
+  };
+  connectivity: {
+    uptimePercent: number;
+    perTarget: { host: string; avgLatencyMs: number; worstLatencyMs: number; packetLossPct: number }[];
+  };
+  uptime: {
+    overallUptimePct: number;
+    currentStreakMs: number;
+    mttrMs: number;
+    mtbfMs: number;
+    totalIncidents: number;
+    incidentsByType: Record<string, number>;
+    longestOutageMs: number;
+    recentIncidents: Incident[];
+  };
+  speedTest: {
+    avgDownload: number; avgUpload: number;
+    bestDownload: number; worstDownload: number;
+    bestUpload: number; worstUpload: number;
+    avgLatency: number;
+    lastTestTimestamp: string;
+    totalTests: number;
+  };
+  processes: {
+    pm2Online: number; pm2Total: number;
+    totalRestarts: number;
+    mostRestarted: { name: string; count: number } | null;
+    perProcess: { name: string; cpu: number; memoryMB: number; restarts: number; status: string }[];
+    dockerByState: Record<string, number>;
+  };
+  security: {
+    totalSshEvents: number;
+    failedLogins: number; acceptedLogins: number;
+    successRate: number;
+    topAttackingIPs: { ip: string; count: number }[];
+    authMethodDist: Record<string, number>;
+    soonestCertExpiryDays: number;
+    certsExpiringWithin30d: number;
+    smartSummary: Record<string, number>;
+  };
+  overview: {
+    serverUptimeSec: number;
+    monitorUptimeSec: number;
+    totalDataPoints: number;
+    collectionCycleMs: number;
+    pendingUpdates: number;
+    activeUserSessions: number;
+    hostname: string;
+    os: string;
+    cpuModel: string;
+    cpuCores: number;
+    totalMemGB: number;
+  };
+  range: string;
+  computedAt: string;
 }

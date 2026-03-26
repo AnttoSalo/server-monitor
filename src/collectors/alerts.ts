@@ -1,5 +1,6 @@
 import os from "os";
 import type { SystemStats, PM2Process, ConnectivityStatus, ServiceStatus } from "../types.js";
+import { getLastActivity } from "./activity.js";
 
 const WEBHOOK_URL = process.env.ALERT_WEBHOOK || "";
 const COOLDOWN_MS = 600_000; // 10 min
@@ -83,7 +84,17 @@ export function checkAlerts(
     if (cpuBreachCount >= CPU_SUSTAIN_COUNT) {
       fireAlert("cpu", {
         title: `🔴 CPU Critical — ${system.cpu}%`,
-        description: `CPU usage has exceeded ${THRESHOLDS.cpu}% for over 60 seconds.`,
+        description: (() => {
+          const act = getLastActivity();
+          let desc = `CPU usage has exceeded ${THRESHOLDS.cpu}% for over 60 seconds.`;
+          if (act.level !== "idle" && act.activities.length > 0) {
+            desc += "\n\n**What's happening:**\n" + act.activities.slice(0, 3)
+              .map((a) => `• ${a.label} (${a.cpuPercent}% CPU)`).join("\n");
+            if (act.resources.diskIO.note !== "idle") desc += `\n\nDisk I/O: ${act.resources.diskIO.note}`;
+            if (act.trend !== "stable") desc += `\nTrend: ${act.trend}`;
+          }
+          return desc;
+        })(),
         color: RED,
         fields: [
           { name: "Host", value: hostname, inline: true },

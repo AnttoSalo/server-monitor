@@ -16,6 +16,7 @@ import { getLastSshAuth } from "../collectors/sshauth.js";
 import { getLastSmart } from "../collectors/smart.js";
 import { getLastCrontabs } from "../collectors/crontabs.js";
 import { getLastBandwidth } from "../collectors/bandwidth.js";
+import { getLastActivity } from "../collectors/activity.js";
 import type { StatusResponse } from "../types.js";
 
 const router = Router();
@@ -51,6 +52,7 @@ router.get("/", async (_req, res) => {
     smart: getLastSmart(),
     crontabs: getLastCrontabs(),
     bandwidth: getLastBandwidth(),
+    activity: getLastActivity(),
     meta: {
       hostname: os.hostname(),
       platform: process.platform,

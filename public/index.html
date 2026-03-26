@@ -517,11 +517,45 @@ function renderOverview(data) {
     if (old.length > 1) old[0].remove();
   }
 
-  // Stress summary
+  // Activity engine summary
   const stressEl = document.getElementById('stress-summary');
-  const summary = getStressSummary(data);
-  if (summary) {
-    stressEl.innerHTML = `<div class="card" style="padding:10px 16px;font-size:12px;line-height:1.6">${summary}</div>`;
+  const act = data.activity;
+  if (act && act.level !== 'idle') {
+    const icons = { light: '🟡', moderate: '🟠', heavy: '🔴', critical: '🔴' };
+    const icon = icons[act.level] || '🟡';
+    const trendIcon = act.trend === 'rising' ? ' ↗' : act.trend === 'falling' ? ' ↘' : '';
+
+    let html = `<div class="card" style="padding:12px 16px">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+        <span style="font-size:13px;font-weight:600">${icon} ${act.summary}</span>
+        <span style="font-size:10px;color:var(--muted)">${act.trend}${trendIcon}</span>
+      </div>`;
+
+    // Activity rows
+    for (const a of act.activities.slice(0, 4)) {
+      const typeColors = { build: 'var(--amber)', serve: 'var(--green)', database: 'var(--purple)', system: 'var(--cyan)', download: 'var(--blue)', unknown: 'var(--muted)' };
+      const color = typeColors[a.type] || 'var(--muted)';
+      html += `<div style="display:flex;justify-content:space-between;padding:3px 0;font-size:11px;border-bottom:1px solid rgba(255,255,255,0.03)">
+        <span><span style="color:${color};font-size:9px;text-transform:uppercase;margin-right:6px">${a.type}</span>${a.label}</span>
+        <span style="color:var(--muted)">${a.cpuPercent}% CPU · ${a.memPercent}% mem</span>
+      </div>`;
+    }
+
+    // Resource footer
+    html += `<div style="display:flex;gap:12px;margin-top:8px;font-size:10px;color:var(--muted);flex-wrap:wrap">
+      <span>Memory: ${act.resources.memory.note}</span>
+      <span>Disk: ${act.resources.diskIO.note}</span>
+      <span>Network: ${act.resources.network.note}</span>
+    </div>`;
+
+    // Baseline note (last detail if it mentions "time of day")
+    const baseline = act.details.find(d => d.includes('time of day'));
+    if (baseline) {
+      html += `<div style="font-size:9px;color:var(--muted);margin-top:4px;font-style:italic">${baseline}</div>`;
+    }
+
+    html += '</div>';
+    stressEl.innerHTML = html;
   } else {
     stressEl.innerHTML = '';
   }

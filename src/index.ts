@@ -21,6 +21,9 @@ import { trackRestarts } from "./collectors/restarts.js";
 import { checkAlerts } from "./collectors/alerts.js";
 import { trackUptime } from "./collectors/uptime.js";
 import { checkScheduledReport } from "./collectors/reports.js";
+import { analyzeActivity } from "./collectors/activity.js";
+import { getLastTopProcesses } from "./collectors/processes.js";
+import { getHistory } from "./collectors/system.js";
 import { authMiddleware } from "./auth.js";
 import statusRouter from "./routes/status.js";
 import systemRouter from "./routes/system.js";
@@ -115,6 +118,12 @@ async function startCollectors() {
     if (sys) {
       checkAlerts(sys, pm2, conn, svcs);
       trackUptime(conn, svcs, pm2).catch(() => {});
+
+      // Activity analysis
+      const topProcs = getLastTopProcesses();
+      const recent = await getHistory(600_000).catch(() => []); // last 10 min
+      const full = await getHistory(86_400_000).catch(() => []); // last 24h for baseline
+      analyzeActivity(sys, topProcs, pm2, recent, full);
     }
 
     // Broadcast via WebSocket
