@@ -113,6 +113,32 @@
 
   .loading { color: var(--muted); font-size: 11px; padding: 20px; text-align: center; }
 
+  /* Stats page */
+  .stat-row { display: flex; justify-content: space-between; padding: 5px 0; font-size: 11px; border-bottom: 1px solid rgba(255,255,255,0.03); }
+  .stat-row:last-child { border-bottom: none; }
+  .stat-row-label { color: var(--muted); }
+  .stat-row-value { font-weight: 600; }
+  .stat-highlight { font-size: 24px; font-weight: 700; line-height: 1.2; }
+  .stat-section-title { font-size: 10px; text-transform: uppercase; letter-spacing: 0.15em; color: var(--muted); margin: 20px 0 12px 0; padding-bottom: 8px; border-bottom: 1px solid var(--border); }
+  .stat-section-title:first-child { margin-top: 0; }
+  .hbar-container { display: flex; flex-direction: column; gap: 6px; }
+  .hbar-row { display: flex; align-items: center; gap: 8px; font-size: 10px; }
+  .hbar-label { min-width: 110px; color: var(--muted); text-align: right; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .hbar-track { flex: 1; height: 8px; background: rgba(255,255,255,0.05); border-radius: 4px; overflow: hidden; }
+  .hbar-fill { height: 100%; border-radius: 4px; transition: width 0.3s; }
+  .hbar-value { min-width: 36px; font-weight: 600; }
+  .mini-stat { text-align: center; padding: 12px 8px; }
+  .mini-stat .mini-value { font-size: 20px; font-weight: 700; }
+  .mini-stat .mini-label { font-size: 9px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.1em; margin-top: 4px; }
+  .mini-stat .mini-sub { font-size: 10px; color: var(--muted); margin-top: 2px; }
+  .trend-up { color: var(--red); }
+  .trend-down { color: var(--green); }
+  .trend-stable { color: var(--muted); }
+  .stats-gauge-row { display: flex; gap: 16px; justify-content: center; flex-wrap: wrap; margin-bottom: 16px; }
+  .incident-row { display: flex; align-items: center; gap: 8px; padding: 5px 0; font-size: 10px; border-bottom: 1px solid rgba(255,255,255,0.03); }
+  .incident-dot { width: 6px; height: 6px; border-radius: 50%; flex-shrink: 0; }
+  .grid-6 { grid-template-columns: repeat(6, 1fr); }
+
   /* Alert animations */
   @keyframes pulse-glow {
     0%, 100% { filter: drop-shadow(0 0 4px currentColor); }
@@ -122,7 +148,7 @@
   .alert-warning svg circle:nth-child(2) { animation: pulse-glow 4s ease-in-out infinite; }
 
   @media (max-width: 768px) {
-    .grid-2, .grid-3, .grid-4 { grid-template-columns: 1fr; }
+    .grid-2, .grid-3, .grid-4, .grid-6 { grid-template-columns: 1fr; }
     .gauge-row { flex-wrap: wrap; gap: 12px; }
     .gauge svg { width: 70px; height: 70px; }
     .gauge-label { font-size: 8px; }
@@ -157,6 +183,7 @@
   <div class="tab" data-tab="security">Security</div>
   <div class="tab" data-tab="history">History</div>
   <div class="tab" data-tab="logs">Logs</div>
+  <div class="tab" data-tab="stats">Stats</div>
 </nav>
 
 <main class="content">
@@ -304,6 +331,47 @@
     </div>
     <div class="log-viewer" id="log-viewer">Select a process and click Refresh.</div>
   </div>
+
+  <!-- STATS -->
+  <div class="tab-content" id="tab-stats">
+    <div class="period-selector" id="stats-period-selector">
+      <button class="stats-period-btn" data-range="1h">1H</button>
+      <button class="stats-period-btn" data-range="6h">6H</button>
+      <button class="stats-period-btn active" data-range="24h">24H</button>
+      <button class="stats-period-btn" data-range="7d">7D</button>
+    </div>
+
+    <div class="stat-section-title" style="margin-top:0">System Performance</div>
+    <div class="grid grid-3" id="stats-system"></div>
+
+    <div class="stat-section-title">Network &amp; Bandwidth</div>
+    <div class="grid grid-2" id="stats-network-section">
+      <div class="card" id="stats-network"></div>
+      <div class="chart-container" style="height:220px">
+        <div class="chart-title"><span class="chart-label">Monthly Bandwidth</span></div>
+        <canvas class="chart-canvas" id="chart-bandwidth"></canvas>
+      </div>
+    </div>
+
+    <div class="stat-section-title">Uptime &amp; Reliability</div>
+    <div class="stats-gauge-row" id="stats-uptime-gauges"></div>
+    <div class="grid grid-2" id="stats-uptime-details"></div>
+
+    <div class="stat-section-title">Connectivity</div>
+    <div class="grid grid-2" id="stats-connectivity"></div>
+
+    <div class="stat-section-title">Speed Test Analysis</div>
+    <div class="card" id="stats-speedtest"></div>
+
+    <div class="stat-section-title">Process Statistics</div>
+    <div class="grid grid-2" id="stats-processes"></div>
+
+    <div class="stat-section-title">Security Overview</div>
+    <div class="grid grid-2" id="stats-security"></div>
+
+    <div class="stat-section-title">System Overview</div>
+    <div class="grid grid-6" id="stats-overview"></div>
+  </div>
 </main>
 
 <footer id="self-monitor-footer" style="position:fixed;bottom:0;left:0;right:0;padding:6px 24px;background:var(--bg);border-top:1px solid var(--border);font-size:9px;color:rgba(255,255,255,0.25);display:flex;gap:16px"></footer>
@@ -333,6 +401,7 @@ document.querySelectorAll('.tab').forEach(tab => {
     document.getElementById('tab-' + tab.dataset.tab).classList.add('active');
     if (tab.dataset.tab === 'history') loadHistory();
     if (tab.dataset.tab === 'network') loadConnectivityHistory();
+    if (tab.dataset.tab === 'stats') loadStats();
   });
 });
 
@@ -1479,9 +1548,467 @@ loadHistory();
 setInterval(poll, 10000);
 setInterval(() => {
   if (document.querySelector('[data-tab="history"]').classList.contains('active')) loadHistory();
+  if (document.querySelector('[data-tab="stats"]').classList.contains('active')) loadStats();
 }, 60000);
 
-// Keyboard shortcuts: 1=Overview, 2=Processes, 3=Network, 4=Security, 5=History, 6=Logs
+// ===================== STATS TAB =====================
+let statsRange = '24h';
+let statsData = null;
+
+async function loadStats() {
+  try {
+    const res = await fetch(API + '/stats?range=' + statsRange);
+    statsData = await res.json();
+    renderStats(statsData);
+  } catch (e) {
+    document.getElementById('stats-system').innerHTML = '<div class="card" style="grid-column:1/-1"><div class="loading">Error loading statistics</div></div>';
+  }
+}
+
+// Stats period selector
+document.querySelectorAll('.stats-period-btn[data-range]').forEach(btn => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('.stats-period-btn[data-range]').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    statsRange = btn.dataset.range;
+    loadStats();
+  });
+});
+
+function statRow(label, value, color) {
+  const colorStyle = color ? ' style="color:' + color + '"' : '';
+  return '<div class="stat-row"><span class="stat-row-label">' + label + '</span><span class="stat-row-value"' + colorStyle + '>' + value + '</span></div>';
+}
+
+function trendArrow(trend) {
+  if (trend === 'rising') return '<span class="trend-up">&#9650; Rising</span>';
+  if (trend === 'falling') return '<span class="trend-down">&#9660; Falling</span>';
+  return '<span class="trend-stable">&#9644; Stable</span>';
+}
+
+function fmtPct(v) { return v.toFixed(1) + '%'; }
+function fmtMs(ms) {
+  if (ms <= 0) return '0s';
+  const s = Math.floor(ms / 1000);
+  if (s < 60) return s + 's';
+  const m = Math.floor(s / 60);
+  if (m < 60) return m + 'm ' + (s % 60) + 's';
+  const h = Math.floor(m / 60);
+  if (h < 24) return h + 'h ' + (m % 60) + 'm';
+  const d = Math.floor(h / 24);
+  return d + 'd ' + (h % 24) + 'h';
+}
+function fmtTime(iso) {
+  if (!iso) return '—';
+  const d = new Date(iso);
+  return d.toLocaleString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+}
+
+function makeStatsGauge(pct, label, sub, color) {
+  const r = 38, c = 2 * Math.PI * r, offset = c * (1 - Math.min(pct, 100) / 100);
+  return '<div class="gauge"><svg viewBox="0 0 100 100">' +
+    '<circle cx="50" cy="50" r="' + r + '" fill="none" stroke="rgba(255,255,255,0.05)" stroke-width="6"/>' +
+    '<circle cx="50" cy="50" r="' + r + '" fill="none" stroke="' + color + '" stroke-width="6" ' +
+    'stroke-dasharray="' + c + '" stroke-dashoffset="' + offset + '" stroke-linecap="round" ' +
+    'transform="rotate(-90 50 50)"/>' +
+    '<text x="50" y="50" text-anchor="middle" dominant-baseline="central" fill="' + color + '" font-size="16" font-weight="700">' + pct.toFixed(1) + '%</text>' +
+    '</svg><div class="gauge-label">' + label + '</div>' +
+    (sub ? '<div class="gauge-detail">' + sub + '</div>' : '') + '</div>';
+}
+
+function renderStats(d) {
+  renderSystemPerfStats(d.system);
+  renderNetworkStats(d.network);
+  renderUptimeStats(d.uptime);
+  renderConnectivityStatsTab(d.connectivity);
+  renderSpeedTestStats(d.speedTest);
+  renderProcessStatsTab(d.processes);
+  renderSecurityStatsTab(d.security);
+  renderOverviewStats(d.overview);
+}
+
+// --- System Performance ---
+function renderSystemPerfStats(s) {
+  const el = document.getElementById('stats-system');
+  el.innerHTML =
+    '<div class="card"><div class="card-title">CPU</div>' +
+      statRow('Average', fmtPct(s.cpu.avg), 'var(--cyan)') +
+      statRow('Median', fmtPct(s.cpu.median)) +
+      statRow('95th Percentile', fmtPct(s.cpu.p95), 'var(--amber)') +
+      statRow('Peak', fmtPct(s.cpu.peak), 'var(--red)') +
+      statRow('Time Above 90%', s.cpu.timeAbove90Pct + ' min', s.cpu.timeAbove90Pct > 0 ? 'var(--red)' : null) +
+    '</div>' +
+    '<div class="card"><div class="card-title">Memory</div>' +
+      statRow('Average', fmtPct(s.memory.avgPercent), 'var(--green)') +
+      statRow('Peak', fmtPct(s.memory.peakPercent), 'var(--red)') +
+      statRow('Trend', trendArrow(s.memory.trend)) +
+      statRow('Peak Time', fmtTime(s.memory.peakTime)) +
+    '</div>' +
+    '<div class="card"><div class="card-title">Disk</div>' +
+      statRow('Avg Usage', fmtPct(s.disk.avgPercent), 'var(--purple)') +
+      statRow('Avg Read', formatSpeed(s.disk.avgReadKBps)) +
+      statRow('Avg Write', formatSpeed(s.disk.avgWriteKBps)) +
+      statRow('Read/Write Ratio', (s.disk.readWriteRatio * 100).toFixed(0) + '% / ' + ((1 - s.disk.readWriteRatio) * 100).toFixed(0) + '%') +
+    '</div>' +
+    '<div class="card"><div class="card-title">Load Average</div>' +
+      statRow('Average', s.load.avg.toFixed(2), 'var(--purple)') +
+      statRow('Peak', s.load.peak.toFixed(2), 'var(--red)') +
+      statRow('Normalized', fmtPct(s.load.normalized * 100)) +
+    '</div>' +
+    '<div class="card"><div class="card-title">Temperature</div>' +
+      statRow('Average', s.temperature.avg > 0 ? s.temperature.avg.toFixed(1) + '°C' : '—', 'var(--orange)') +
+      statRow('Peak', s.temperature.peak > 0 ? s.temperature.peak.toFixed(1) + '°C' : '—', s.temperature.peak >= 80 ? 'var(--red)' : null) +
+      statRow('Time Above 80°C', s.temperature.timeAbove80 + ' min', s.temperature.timeAbove80 > 0 ? 'var(--red)' : null) +
+    '</div>' +
+    '<div class="card"><div class="card-title">Swap</div>' +
+      statRow('Average', fmtPct(s.swap.avg), 'var(--pink)') +
+      statRow('Peak', fmtPct(s.swap.peak), s.swap.peak > 50 ? 'var(--red)' : null) +
+    '</div>';
+}
+
+// --- Network & Bandwidth ---
+function renderNetworkStats(n) {
+  const el = document.getElementById('stats-network');
+  const totalMB = n.totalRxMB + n.totalTxMB;
+  const totalLabel = totalMB >= 1024 ? (totalMB / 1024).toFixed(2) + ' GB' : totalMB.toFixed(1) + ' MB';
+  const rxLabel = n.totalRxMB >= 1024 ? (n.totalRxMB / 1024).toFixed(2) + ' GB' : n.totalRxMB.toFixed(1) + ' MB';
+  const txLabel = n.totalTxMB >= 1024 ? (n.totalTxMB / 1024).toFixed(2) + ' GB' : n.totalTxMB.toFixed(1) + ' MB';
+
+  el.innerHTML =
+    '<div class="card-title">Throughput</div>' +
+    statRow('Total Consumed', totalLabel, 'var(--text)') +
+    statRow('↓ RX Total', rxLabel, 'var(--blue)') +
+    statRow('↑ TX Total', txLabel, 'var(--amber)') +
+    '<div style="height:8px"></div>' +
+    statRow('Avg RX', formatSpeed(n.avgRxKBps), 'var(--blue)') +
+    statRow('Avg TX', formatSpeed(n.avgTxKBps), 'var(--amber)') +
+    statRow('Peak RX', formatSpeed(n.peakRxKBps), 'var(--blue)') +
+    statRow('Peak TX', formatSpeed(n.peakTxKBps), 'var(--amber)') +
+    '<div style="height:8px"></div>' +
+    statRow('YTD RX', n.ytdRxGB.toFixed(2) + ' GB', 'var(--blue)') +
+    statRow('YTD TX', n.ytdTxGB.toFixed(2) + ' GB', 'var(--amber)') +
+    statRow('YTD Total', (n.ytdRxGB + n.ytdTxGB).toFixed(2) + ' GB');
+
+  // Draw bandwidth bar chart
+  if (n.monthlyBandwidth && n.monthlyBandwidth.length > 0) {
+    setTimeout(() => drawBandwidthChart('chart-bandwidth', n.monthlyBandwidth), 0);
+  }
+}
+
+// --- Bar Chart for Monthly Bandwidth ---
+function drawBandwidthChart(canvasId, months) {
+  const canvas = document.getElementById(canvasId);
+  if (!canvas) return;
+  const rect = canvas.getBoundingClientRect();
+  const dpr = window.devicePixelRatio || 1;
+  canvas.width = rect.width * dpr;
+  canvas.height = rect.height * dpr;
+  const ctx = canvas.getContext('2d');
+  ctx.scale(dpr, dpr);
+  const w = rect.width, h = rect.height;
+  const pad = { top: 28, right: 12, bottom: 24, left: 44 };
+  const plotW = w - pad.left - pad.right;
+  const plotH = h - pad.top - pad.bottom;
+
+  const maxVal = Math.max(1, ...months.map(m => Math.max(m.rxGB, m.txGB)));
+  const nBars = months.length;
+  const groupW = plotW / nBars;
+  const barW = Math.max(4, groupW * 0.35);
+  const gap = Math.max(2, groupW * 0.05);
+
+  // Grid lines
+  ctx.strokeStyle = 'rgba(255,255,255,0.05)';
+  ctx.lineWidth = 1;
+  ctx.font = '8px monospace';
+  ctx.fillStyle = 'rgba(255,255,255,0.3)';
+  ctx.textAlign = 'right';
+  for (let i = 0; i <= 4; i++) {
+    const y = pad.top + plotH * (1 - i / 4);
+    ctx.beginPath(); ctx.moveTo(pad.left, y); ctx.lineTo(w - pad.right, y); ctx.stroke();
+    ctx.fillText((maxVal * i / 4).toFixed(1), pad.left - 4, y + 3);
+  }
+
+  // Bars
+  const colors = { rx: '#60a5fa', tx: '#fbbf24' };
+  months.forEach((m, i) => {
+    const x = pad.left + i * groupW + (groupW - barW * 2 - gap) / 2;
+    const rxH = (m.rxGB / maxVal) * plotH;
+    const txH = (m.txGB / maxVal) * plotH;
+
+    ctx.fillStyle = colors.rx;
+    ctx.fillRect(x, pad.top + plotH - rxH, barW, rxH);
+
+    ctx.fillStyle = colors.tx;
+    ctx.fillRect(x + barW + gap, pad.top + plotH - txH, barW, txH);
+
+    // Month label
+    ctx.fillStyle = 'rgba(255,255,255,0.3)';
+    ctx.textAlign = 'center';
+    ctx.font = '8px monospace';
+    const label = m.month.slice(5); // "MM" from "YYYY-MM"
+    const monthNames = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+    const mIdx = parseInt(label, 10) - 1;
+    ctx.fillText(monthNames[mIdx] || label, x + barW + gap / 2, h - pad.bottom + 12);
+  });
+
+  // Legend
+  ctx.font = '8px monospace';
+  ctx.textAlign = 'right';
+  ctx.fillStyle = colors.rx;
+  ctx.fillRect(w - pad.right - 72, 10, 8, 8);
+  ctx.fillStyle = 'rgba(255,255,255,0.5)';
+  ctx.fillText('RX', w - pad.right - 56, 17);
+  ctx.fillStyle = colors.tx;
+  ctx.fillRect(w - pad.right - 40, 10, 8, 8);
+  ctx.fillStyle = 'rgba(255,255,255,0.5)';
+  ctx.fillText('TX', w - pad.right - 24, 17);
+
+  // Unit label
+  ctx.fillStyle = 'rgba(255,255,255,0.25)';
+  ctx.textAlign = 'left';
+  ctx.fillText('GB', pad.left, pad.top - 6);
+}
+
+// --- Uptime & Reliability ---
+function renderUptimeStats(u) {
+  const gauges = document.getElementById('stats-uptime-gauges');
+  const uptimeColor = u.overallUptimePct >= 99.9 ? 'var(--green)' : u.overallUptimePct >= 99 ? 'var(--amber)' : 'var(--red)';
+  gauges.innerHTML =
+    makeStatsGauge(u.overallUptimePct, 'Uptime', statsRange.toUpperCase() + ' period', uptimeColor) +
+    '<div class="gauge" style="display:flex;flex-direction:column;align-items:center;justify-content:center;width:100px">' +
+      '<div style="font-size:18px;font-weight:700;color:var(--cyan)">' + fmtMs(u.currentStreakMs) + '</div>' +
+      '<div class="gauge-label">Current Streak</div>' +
+    '</div>' +
+    '<div class="gauge" style="display:flex;flex-direction:column;align-items:center;justify-content:center;width:100px">' +
+      '<div style="font-size:18px;font-weight:700;color:var(--amber)">' + (u.mttrMs > 0 ? fmtMs(u.mttrMs) : '—') + '</div>' +
+      '<div class="gauge-label">MTTR</div>' +
+    '</div>' +
+    '<div class="gauge" style="display:flex;flex-direction:column;align-items:center;justify-content:center;width:100px">' +
+      '<div style="font-size:18px;font-weight:700;color:var(--purple)">' + fmtMs(u.mtbfMs) + '</div>' +
+      '<div class="gauge-label">MTBF</div>' +
+    '</div>';
+
+  const details = document.getElementById('stats-uptime-details');
+  // Incidents by type
+  const typeEntries = Object.entries(u.incidentsByType);
+  let typeRows = typeEntries.length > 0
+    ? typeEntries.map(([k, v]) => statRow(k, v, 'var(--amber)')).join('')
+    : '<div style="font-size:11px;color:var(--muted);padding:8px 0">No incidents in this period</div>';
+
+  // Recent incidents table
+  let incidentRows = '';
+  if (u.recentIncidents && u.recentIncidents.length > 0) {
+    incidentRows = u.recentIncidents.map(i => {
+      const dotColor = i.status === 'down' ? 'var(--red)' : 'var(--green)';
+      const dur = i.durationMs ? fmtMs(i.durationMs) : 'ongoing';
+      return '<div class="incident-row">' +
+        '<span class="incident-dot" style="background:' + dotColor + '"></span>' +
+        '<span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + i.detail + '</span>' +
+        '<span style="color:var(--muted)">' + i.type + '</span>' +
+        '<span style="min-width:50px;text-align:right">' + dur + '</span>' +
+        '<span style="color:var(--muted);min-width:80px;text-align:right">' + fmtTime(i.startedAt) + '</span>' +
+      '</div>';
+    }).join('');
+  }
+
+  details.innerHTML =
+    '<div class="card"><div class="card-title">Incident Summary</div>' +
+      statRow('Total Incidents', u.totalIncidents, u.totalIncidents > 0 ? 'var(--amber)' : 'var(--green)') +
+      statRow('Longest Outage', u.longestOutageMs > 0 ? fmtMs(u.longestOutageMs) : '—', u.longestOutageMs > 0 ? 'var(--red)' : null) +
+      '<div style="height:8px"></div>' +
+      '<div style="font-size:9px;color:var(--muted);text-transform:uppercase;letter-spacing:0.1em;margin-bottom:4px">By Type</div>' +
+      typeRows +
+    '</div>' +
+    '<div class="card"><div class="card-title">Recent Incidents</div>' +
+      (incidentRows || '<div style="font-size:11px;color:var(--muted);padding:8px 0">No incidents recorded</div>') +
+    '</div>';
+}
+
+// --- Connectivity ---
+function renderConnectivityStatsTab(c) {
+  const el = document.getElementById('stats-connectivity');
+  const uptimeColor = c.uptimePercent >= 99.9 ? 'var(--green)' : c.uptimePercent >= 99 ? 'var(--amber)' : 'var(--red)';
+
+  let targetRows = '';
+  if (c.perTarget && c.perTarget.length > 0) {
+    const maxLatency = Math.max(1, ...c.perTarget.map(t => t.worstLatencyMs));
+    targetRows = '<table><tr><th>Target</th><th>Avg Latency</th><th>Worst</th><th>Packet Loss</th></tr>' +
+      c.perTarget.map(t => {
+        const lossColor = t.packetLossPct > 5 ? 'var(--red)' : t.packetLossPct > 0 ? 'var(--amber)' : 'var(--green)';
+        return '<tr><td>' + t.host + '</td>' +
+          '<td>' + t.avgLatencyMs.toFixed(1) + ' ms</td>' +
+          '<td>' + t.worstLatencyMs.toFixed(1) + ' ms</td>' +
+          '<td style="color:' + lossColor + '">' + t.packetLossPct.toFixed(1) + '%</td></tr>';
+      }).join('') +
+      '</table>';
+  } else {
+    targetRows = '<div style="font-size:11px;color:var(--muted);padding:8px 0">No connectivity data</div>';
+  }
+
+  el.innerHTML =
+    '<div class="card" style="display:flex;flex-direction:column;align-items:center;justify-content:center">' +
+      makeStatsGauge(c.uptimePercent, 'Conn. Uptime', 'Last 24h', uptimeColor) +
+    '</div>' +
+    '<div class="card"><div class="card-title">Per-Target Analysis</div>' + targetRows + '</div>';
+}
+
+// --- Speed Test ---
+function renderSpeedTestStats(s) {
+  const el = document.getElementById('stats-speedtest');
+  if (s.totalTests === 0) {
+    el.innerHTML = '<div class="card-title">Speed Test Analysis</div><div style="font-size:11px;color:var(--muted);padding:8px 0">No speed test data available. Run a test from the Network tab.</div>';
+    return;
+  }
+  el.innerHTML =
+    '<div class="card-title">Speed Test Analysis</div>' +
+    '<div style="display:grid;grid-template-columns:1fr 1fr;gap:16px">' +
+      '<div>' +
+        '<div style="font-size:9px;color:var(--muted);text-transform:uppercase;letter-spacing:0.1em;margin-bottom:6px">Download</div>' +
+        statRow('Average', s.avgDownload.toFixed(1) + ' Mbps', 'var(--green)') +
+        statRow('Best', s.bestDownload.toFixed(1) + ' Mbps', 'var(--cyan)') +
+        statRow('Worst', s.worstDownload.toFixed(1) + ' Mbps', 'var(--red)') +
+      '</div>' +
+      '<div>' +
+        '<div style="font-size:9px;color:var(--muted);text-transform:uppercase;letter-spacing:0.1em;margin-bottom:6px">Upload</div>' +
+        statRow('Average', s.avgUpload.toFixed(1) + ' Mbps', 'var(--green)') +
+        statRow('Best', s.bestUpload.toFixed(1) + ' Mbps', 'var(--cyan)') +
+        statRow('Worst', s.worstUpload.toFixed(1) + ' Mbps', 'var(--red)') +
+      '</div>' +
+    '</div>' +
+    '<div style="height:8px"></div>' +
+    statRow('Avg Latency', s.avgLatency.toFixed(0) + ' ms') +
+    statRow('Tests Run', s.totalTests) +
+    statRow('Last Test', fmtTime(s.lastTestTimestamp));
+}
+
+// --- Process Statistics ---
+function renderProcessStatsTab(p) {
+  const el = document.getElementById('stats-processes');
+  const healthPct = p.pm2Total > 0 ? (p.pm2Online / p.pm2Total * 100) : 100;
+  const healthColor = healthPct >= 100 ? 'var(--green)' : healthPct >= 50 ? 'var(--amber)' : 'var(--red)';
+
+  let processTable = '';
+  if (p.perProcess && p.perProcess.length > 0) {
+    processTable = '<table><tr><th>Process</th><th>Status</th><th>CPU</th><th>Memory</th><th>Restarts</th></tr>' +
+      p.perProcess.map(pr => {
+        const sc = pr.status === 'online' ? 'var(--green)' : pr.status === 'errored' ? 'var(--red)' : 'var(--muted)';
+        return '<tr><td>' + pr.name + '</td>' +
+          '<td><span style="color:' + sc + '">' + pr.status + '</span></td>' +
+          '<td>' + pr.cpu.toFixed(1) + '%</td>' +
+          '<td>' + pr.memoryMB.toFixed(0) + ' MB</td>' +
+          '<td>' + (pr.restarts > 0 ? '<span style="color:var(--amber)">' + pr.restarts + '</span>' : '0') + '</td></tr>';
+      }).join('') +
+      '</table>';
+  }
+
+  // Docker summary
+  const dockerEntries = Object.entries(p.dockerByState);
+  let dockerContent = '';
+  if (dockerEntries.length > 0) {
+    dockerContent = dockerEntries.map(([state, count]) => {
+      const c = state === 'running' ? 'var(--green)' : state === 'exited' ? 'var(--red)' : 'var(--muted)';
+      return statRow(state, count, c);
+    }).join('');
+  } else {
+    dockerContent = '<div style="font-size:11px;color:var(--muted);padding:8px 0">No Docker containers detected</div>';
+  }
+
+  el.innerHTML =
+    '<div class="card"><div class="card-title">PM2 Processes</div>' +
+      statRow('Health', p.pm2Online + ' / ' + p.pm2Total + ' online', healthColor) +
+      statRow('Total Restarts', p.totalRestarts, p.totalRestarts > 0 ? 'var(--amber)' : null) +
+      statRow('Most Restarted', p.mostRestarted ? p.mostRestarted.name + ' (' + p.mostRestarted.count + ')' : '—', p.mostRestarted ? 'var(--red)' : null) +
+      '<div style="height:8px"></div>' +
+      processTable +
+    '</div>' +
+    '<div class="card"><div class="card-title">Docker Containers</div>' + dockerContent + '</div>';
+}
+
+// --- Security ---
+function renderSecurityStatsTab(s) {
+  const el = document.getElementById('stats-security');
+
+  // Top attacking IPs as horizontal bars
+  let ipBars = '';
+  if (s.topAttackingIPs && s.topAttackingIPs.length > 0) {
+    const maxCount = s.topAttackingIPs[0].count;
+    ipBars = '<div style="font-size:9px;color:var(--muted);text-transform:uppercase;letter-spacing:0.1em;margin:8px 0 6px">Top Attacking IPs</div>' +
+      '<div class="hbar-container">' +
+      s.topAttackingIPs.map(ip =>
+        '<div class="hbar-row">' +
+          '<span class="hbar-label">' + ip.ip + '</span>' +
+          '<div class="hbar-track"><div class="hbar-fill" style="width:' + (ip.count / maxCount * 100) + '%;background:var(--red)"></div></div>' +
+          '<span class="hbar-value" style="color:var(--red)">' + ip.count + '</span>' +
+        '</div>'
+      ).join('') +
+      '</div>';
+  }
+
+  // Auth method distribution
+  const methodEntries = Object.entries(s.authMethodDist);
+  let methodRows = methodEntries.map(([method, count]) => statRow(method, count)).join('');
+
+  // Cert info
+  let certContent = '';
+  if (s.soonestCertExpiryDays >= 0) {
+    const certColor = s.soonestCertExpiryDays <= 7 ? 'var(--red)' : s.soonestCertExpiryDays <= 30 ? 'var(--amber)' : 'var(--green)';
+    certContent =
+      statRow('Soonest Expiry', s.soonestCertExpiryDays + ' days', certColor) +
+      statRow('Expiring < 30d', s.certsExpiringWithin30d, s.certsExpiringWithin30d > 0 ? 'var(--amber)' : null);
+  } else {
+    certContent = '<div style="font-size:11px;color:var(--muted);padding:4px 0">No certificates monitored</div>';
+  }
+
+  // SMART summary
+  const smartEntries = Object.entries(s.smartSummary);
+  let smartContent = '';
+  if (smartEntries.length > 0) {
+    smartContent = smartEntries.map(([status, count]) => {
+      const c = status === 'healthy' ? 'var(--green)' : status === 'warning' ? 'var(--amber)' : status === 'failing' ? 'var(--red)' : 'var(--muted)';
+      return statRow(status, count, c);
+    }).join('');
+  } else {
+    smartContent = '<div style="font-size:11px;color:var(--muted);padding:4px 0">No SMART data</div>';
+  }
+
+  const successColor = s.successRate >= 90 ? 'var(--green)' : s.successRate >= 50 ? 'var(--amber)' : 'var(--red)';
+
+  el.innerHTML =
+    '<div class="card"><div class="card-title">SSH Authentication</div>' +
+      statRow('Total Events', s.totalSshEvents) +
+      statRow('Failed Logins', s.failedLogins, s.failedLogins > 0 ? 'var(--red)' : null) +
+      statRow('Accepted Logins', s.acceptedLogins, 'var(--green)') +
+      statRow('Success Rate', fmtPct(s.successRate), successColor) +
+      ipBars +
+      '<div style="height:8px"></div>' +
+      '<div style="font-size:9px;color:var(--muted);text-transform:uppercase;letter-spacing:0.1em;margin-bottom:4px">Auth Methods</div>' +
+      methodRows +
+    '</div>' +
+    '<div class="card">' +
+      '<div class="card-title">SSL Certificates</div>' +
+      certContent +
+      '<div style="height:12px"></div>' +
+      '<div class="card-title">Disk SMART Health</div>' +
+      smartContent +
+    '</div>';
+}
+
+// --- System Overview ---
+function renderOverviewStats(o) {
+  const el = document.getElementById('stats-overview');
+  const uptimeDays = Math.floor(o.serverUptimeSec / 86400);
+  const uptimeHours = Math.floor((o.serverUptimeSec % 86400) / 3600);
+
+  el.innerHTML =
+    '<div class="card mini-stat"><div class="mini-value" style="color:var(--cyan)">' + uptimeDays + 'd</div><div class="mini-label">Server Uptime</div><div class="mini-sub">' + uptimeHours + 'h</div></div>' +
+    '<div class="card mini-stat"><div class="mini-value" style="color:var(--green)">' + fmtMs(o.monitorUptimeSec * 1000) + '</div><div class="mini-label">Monitor Uptime</div></div>' +
+    '<div class="card mini-stat"><div class="mini-value" style="color:var(--purple)">' + o.totalDataPoints.toLocaleString() + '</div><div class="mini-label">Data Points</div><div class="mini-sub">in period</div></div>' +
+    '<div class="card mini-stat"><div class="mini-value" style="color:var(--amber)">' + o.collectionCycleMs + '</div><div class="mini-label">Collection (ms)</div></div>' +
+    '<div class="card mini-stat"><div class="mini-value" style="color:' + (o.pendingUpdates > 0 ? 'var(--amber)' : 'var(--green)') + '">' + o.pendingUpdates + '</div><div class="mini-label">Pending Updates</div></div>' +
+    '<div class="card mini-stat"><div class="mini-value" style="color:var(--sky)">' + o.activeUserSessions + '</div><div class="mini-label">Active Sessions</div></div>';
+}
+
+// Keyboard shortcuts: 1=Overview, 2=Processes, 3=Network, 4=Security, 5=History, 6=Logs, 7=Stats
 document.addEventListener('keydown', e => {
   if (e.target.tagName === 'INPUT' || e.target.tagName === 'SELECT' || e.target.tagName === 'TEXTAREA') return;
   const idx = parseInt(e.key) - 1;

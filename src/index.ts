@@ -32,6 +32,7 @@ import connectivityRouter from "./routes/connectivity.js";
 import healthRouter from "./routes/health.js";
 import speedtestRouter from "./routes/speedtest.js";
 import exportRouter from "./routes/export.js";
+import statsRouter from "./routes/stats.js";
 
 const PORT = parseInt(process.env.PORT || "3099");
 const BASE = process.env.BASE_PATH || "";
@@ -81,6 +82,7 @@ app.use(BASE + "/connectivity", connectivityRouter);
 app.use(BASE + "/health", healthRouter);
 app.use(BASE + "/speedtest", speedtestRouter);
 app.use(BASE + "/export", exportRouter);
+app.use(BASE + "/stats", statsRouter);
 
 app.use(BASE + "/", express.static(join(import.meta.dirname, "..", "public")));
 
