@@ -1,0 +1,14 @@
+{
+  "name": "monitor-mcp",
+  "version": "1.0.0",
+  "description": "MCP server exposing server-monitor data to AI agents",
+  "type": "module",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node --watch server.js"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.12.0"
+  }
+}
