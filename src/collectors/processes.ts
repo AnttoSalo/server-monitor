@@ -1,5 +1,6 @@
 import { exec } from "child_process";
 import { promisify } from "util";
+import { readlink } from "fs/promises";
 import os from "os";
 import type { TopProcess } from "../types.js";
 
@@ -32,16 +33,31 @@ function parsePsOutput(stdout: string): TopProcess[] {
   return processes;
 }
 
+async function enrichWithCwd(procs: TopProcess[]): Promise<void> {
+  await Promise.all(
+    procs.map(async (p) => {
+      try {
+        p.cwd = await readlink(`/proc/${p.pid}/cwd`);
+      } catch {
+        // Permission denied or process gone — skip
+      }
+    })
+  );
+}
+
 export async function collectTopProcesses(): Promise<{ byCpu: TopProcess[]; byMem: TopProcess[] }> {
   try {
     const [byCpuResult, byMemResult] = await Promise.all([
       execAsync("ps aux --sort=-%cpu | head -15", { timeout: 5000 }),
       execAsync("ps aux --sort=-%mem | head -15", { timeout: 5000 }),
     ]);
-    lastTopProcesses = {
-      byCpu: parsePsOutput(byCpuResult.stdout).slice(0, 10),
-      byMem: parsePsOutput(byMemResult.stdout).slice(0, 10),
-    };
+    const byCpu = parsePsOutput(byCpuResult.stdout).slice(0, 10);
+    const byMem = parsePsOutput(byMemResult.stdout).slice(0, 10);
+    // Resolve working directories for all unique processes
+    const allProcs = new Map<number, TopProcess>();
+    for (const p of [...byCpu, ...byMem]) allProcs.set(p.pid, p);
+    await enrichWithCwd([...allProcs.values()]);
+    lastTopProcesses = { byCpu, byMem };
   } catch {
     lastTopProcesses = { byCpu: [], byMem: [] };
   }

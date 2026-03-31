@@ -22,6 +22,7 @@ export interface TopProcess {
   mem: number;
   rssKB: number;
   command: string;
+  cwd?: string;
 }
 
 export interface ServiceStatus {

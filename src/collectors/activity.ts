@@ -19,20 +19,27 @@ function matchPm2Name(command: string, pm2Procs: PM2Process[]): string | null {
 
 // --- Process description ---
 
-function describeCommand(cmd: string): { desc: string; type: Activity["type"] } {
+function projectNameFromCwd(cwd?: string): string | null {
+  if (!cwd) return null;
+  const parts = cwd.replace(/\/+$/, "").split("/");
+  return parts[parts.length - 1] || null;
+}
+
+function describeCommand(cmd: string, cwd?: string): { desc: string; type: Activity["type"] } {
   const c = cmd.toLowerCase();
+  const project = projectNameFromCwd(cwd);
   // Build tools
   if (c.includes("tsc") && !c.includes("tsx")) return { desc: "TypeScript compilation", type: "build" };
   if (c.includes("webpack")) return { desc: "Webpack bundling", type: "build" };
   if (c.includes("vite") && !c.includes("vitest")) return { desc: "Vite build", type: "build" };
   if (c.includes("esbuild")) return { desc: "esbuild bundling", type: "build" };
   if (c.includes("turbopack") || c.includes("next build")) return { desc: "Next.js build", type: "build" };
-  if (c.includes("npm run build") || c.includes("npm run compile")) return { desc: "build script", type: "build" };
+  if (c.includes("npm run build") || c.includes("npm run compile")) return { desc: project ? `${project} build` : "build script", type: "build" };
   if (c.includes("gcc") || c.includes("g++") || c.includes("make")) return { desc: "C/C++ compilation", type: "build" };
   if (c.includes("rustc") || c.includes("cargo build")) return { desc: "Rust compilation", type: "build" };
   if (c.includes("go build")) return { desc: "Go compilation", type: "build" };
   // Package managers
-  if (c.includes("npm install") || c.includes("npm ci")) return { desc: "npm install", type: "system" };
+  if (c.includes("npm install") || c.includes("npm ci")) return { desc: project ? `npm install (${project})` : "npm install", type: "system" };
   if (c.includes("apt") || c.includes("dpkg")) return { desc: "system package update", type: "system" };
   // Frameworks serving
   if (c.includes("next-server")) return { desc: "Next.js server", type: "serve" };
@@ -66,7 +73,7 @@ function groupProcesses(procs: TopProcess[], pm2Procs: PM2Process[]): Activity[]
 
   for (const p of procs.filter((p) => p.cpu > 3)) {
     const pm2Name = matchPm2Name(p.command, pm2Procs);
-    const { desc, type } = describeCommand(p.command);
+    const { desc, type } = describeCommand(p.command, p.cwd);
     const key = pm2Name || desc;
 
     if (!groups.has(key)) {
