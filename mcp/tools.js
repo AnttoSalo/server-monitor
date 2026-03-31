@@ -5,11 +5,22 @@
  * Write tools either POST to the API or exec PM2 commands directly.
  */
 
-import { execFile } from 'node:child_process';
+import { execFile, exec } from 'node:child_process';
+import { readFile } from 'node:fs/promises';
 import { promisify } from 'node:util';
 import { monitorGet, monitorPost } from './api.js';
 
 const execFileAsync = promisify(execFile);
+const execAsync = promisify(exec);
+
+/** Get PM2 process info from `pm2 jlist`. */
+async function getPm2Info(name) {
+  const { stdout } = await execAsync('pm2 jlist', { timeout: 10_000 });
+  const procs = JSON.parse(stdout);
+  const proc = procs.find((p) => p.name === name);
+  if (!proc) throw new Error(`PM2 process "${name}" not found`);
+  return proc;
+}
 
 // ─── Tool Definitions (MCP schema) ──────────────────────
 
@@ -136,6 +147,64 @@ export const TOOLS = [
       properties: {},
     },
   },
+  {
+    name: 'pm2_manage',
+    description:
+      'Manage PM2 process lifecycle: start, stop, reload, or delete a process. Use this for full control beyond just restarting.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        name: {
+          type: 'string',
+          description: 'PM2 process name',
+        },
+        action: {
+          type: 'string',
+          enum: ['start', 'stop', 'reload', 'delete'],
+          description: 'PM2 action to perform',
+        },
+      },
+      required: ['name', 'action'],
+    },
+  },
+  {
+    name: 'deploy_app',
+    description:
+      'Build and restart a PM2 managed app. Runs `npm run build` in the process working directory, then restarts the process. Use this after pulling new code to deploy changes.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        name: {
+          type: 'string',
+          description: 'PM2 process name to build and restart',
+        },
+      },
+      required: ['name'],
+    },
+  },
+  {
+    name: 'tail_logs',
+    description:
+      'Read recent PM2 log lines (stdout + stderr combined) with optional text filter. Reads log files directly for speed and supports up to 1000 lines. More powerful than get_pm2_logs.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        name: {
+          type: 'string',
+          description: 'PM2 process name',
+        },
+        lines: {
+          type: 'number',
+          description: 'Number of log lines to return (default: 200, max: 1000)',
+        },
+        filter: {
+          type: 'string',
+          description: 'Case-insensitive text filter — only lines containing this string are returned',
+        },
+      },
+      required: ['name'],
+    },
+  },
 ];
 
 // ─── Tool Dispatch ───────────────────────────────────────
@@ -236,6 +305,125 @@ export async function handleToolCall(name, args) {
 
     case 'run_speed_test': {
       return monitorPost('/speedtest/run');
+    }
+
+    case 'pm2_manage': {
+      if (!args.name) throw new Error('name is required');
+      if (!args.action) throw new Error('action is required');
+      if (!/^[\w-]+$/.test(args.name)) {
+        throw new Error('Invalid process name — only alphanumeric, dashes, and underscores allowed');
+      }
+      const allowed = ['start', 'stop', 'reload', 'delete'];
+      if (!allowed.includes(args.action)) {
+        throw new Error(`Invalid action — must be one of: ${allowed.join(', ')}`);
+      }
+      try {
+        const { stdout, stderr } = await execFileAsync('pm2', [args.action, args.name], {
+          timeout: 15_000,
+        });
+        return {
+          success: true,
+          process: args.name,
+          action: args.action,
+          stdout: stdout.trim(),
+          stderr: stderr.trim() || undefined,
+        };
+      } catch (err) {
+        throw new Error(`Failed to ${args.action} ${args.name}: ${err.message}`);
+      }
+    }
+
+    case 'deploy_app': {
+      if (!args.name) throw new Error('name is required');
+      if (!/^[\w-]+$/.test(args.name)) {
+        throw new Error('Invalid process name — only alphanumeric, dashes, and underscores allowed');
+      }
+
+      // Get process working directory from PM2
+      const proc = await getPm2Info(args.name);
+      const cwd = proc.pm2_env?.pm_cwd;
+      if (!cwd) throw new Error(`Could not determine working directory for "${args.name}"`);
+
+      // Build
+      let buildOutput;
+      try {
+        const { stdout, stderr } = await execFileAsync('npm', ['run', 'build'], {
+          cwd,
+          timeout: 300_000, // 5 minutes
+        });
+        buildOutput = { stdout: stdout.trim(), stderr: stderr.trim() || undefined };
+      } catch (err) {
+        throw new Error(`Build failed for ${args.name} in ${cwd}: ${err.message}`);
+      }
+
+      // Restart
+      let restartOutput;
+      try {
+        const { stdout } = await execFileAsync('pm2', ['restart', args.name], {
+          timeout: 15_000,
+        });
+        restartOutput = stdout.trim();
+      } catch (err) {
+        throw new Error(`Build succeeded but restart failed for ${args.name}: ${err.message}`);
+      }
+
+      return {
+        success: true,
+        process: args.name,
+        cwd,
+        build: buildOutput,
+        restart: restartOutput,
+      };
+    }
+
+    case 'tail_logs': {
+      if (!args.name) throw new Error('name is required');
+      if (!/^[\w-]+$/.test(args.name)) {
+        throw new Error('Invalid process name — only alphanumeric, dashes, and underscores allowed');
+      }
+
+      const maxLines = Math.min(args.lines || 200, 1000);
+
+      // Get log file paths from PM2
+      const logProc = await getPm2Info(args.name);
+      const outPath = logProc.pm2_env?.pm_out_log_path;
+      const errPath = logProc.pm2_env?.pm_err_log_path;
+
+      // Read both log files
+      const readLog = async (path) => {
+        if (!path) return [];
+        try {
+          const content = await readFile(path, 'utf-8');
+          return content.split('\n').filter((l) => l.trim());
+        } catch {
+          return [];
+        }
+      };
+
+      const [outLines, errLines] = await Promise.all([
+        readLog(outPath),
+        readLog(errPath),
+      ]);
+
+      // Combine and take last N lines
+      let combined = [...outLines, ...errLines];
+
+      // Apply text filter if provided
+      if (args.filter) {
+        const lower = args.filter.toLowerCase();
+        combined = combined.filter((l) => l.toLowerCase().includes(lower));
+      }
+
+      // Take last N lines
+      const result = combined.slice(-maxLines);
+
+      return {
+        process: args.name,
+        totalLines: combined.length,
+        returnedLines: result.length,
+        filter: args.filter || null,
+        lines: result,
+      };
     }
 
     default:
