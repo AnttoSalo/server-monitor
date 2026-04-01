@@ -157,10 +157,31 @@ httpServer.listen(PORT, '0.0.0.0', () => {
   console.log(`  Health check:   http://localhost:${PORT}/health`);
 });
 
+// ─── Error Handlers ─────────────────────────────────────
+
+httpServer.on('error', (err) => {
+  if (err.code === 'EADDRINUSE') {
+    console.error(`Fatal: port ${PORT} is already in use`);
+  } else {
+    console.error('HTTP server error:', err);
+  }
+  process.exit(1);
+});
+
+process.on('uncaughtException', (err) => {
+  console.error('Uncaught exception:', err);
+  process.exit(1);
+});
+
+process.on('unhandledRejection', (reason) => {
+  console.error('Unhandled rejection:', reason);
+  process.exit(1);
+});
+
 // ─── Graceful Shutdown ───────────────────────────────────
 
-function shutdown() {
-  console.log('\nShutting down...');
+function shutdown(signal) {
+  console.log(`\nShutting down (${signal})...`);
   for (const [id, { server }] of sessions) {
     server.close().catch(() => {});
   }
@@ -169,5 +190,5 @@ function shutdown() {
   process.exit(0);
 }
 
-process.on('SIGINT', shutdown);
-process.on('SIGTERM', shutdown);
+process.on('SIGINT', () => shutdown('SIGINT'));
+process.on('SIGTERM', () => shutdown('SIGTERM'));
