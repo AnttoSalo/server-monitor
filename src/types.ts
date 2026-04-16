@@ -30,6 +30,11 @@ export interface ServiceStatus {
   status: "active" | "inactive" | "failed" | "unknown";
 }
 
+export interface ListeningPort {
+  port: number;
+  process: string;
+}
+
 export interface SystemStats {
   cpu: number;
   cpuCores: number;
@@ -40,7 +45,7 @@ export interface SystemStats {
   network: { rxKBps: number; txKBps: number; interfaces: InterfaceStats[] };
   loadAvg: { load1: number; load5: number; load15: number; runProcs: number; totalProcs: number };
   temperature: { maxC: number; zones: ThermalZone[] } | null;
-  tcpConnections: { established: number; listening: number; timeWait: number; total: number; listeningPorts: number[] };
+  tcpConnections: { established: number; listening: number; timeWait: number; total: number; listeningPorts: ListeningPort[] };
 }
 
 export interface DiskInfo {

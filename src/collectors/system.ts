@@ -2,7 +2,7 @@ import { readFile, readdir } from "fs/promises";
 import { exec } from "child_process";
 import { promisify } from "util";
 import os from "os";
-import type { SystemStats, DiskInfo, SystemHistoryEntry, InterfaceStats, ThermalZone, DiskIOStats } from "../types.js";
+import type { SystemStats, DiskInfo, SystemHistoryEntry, InterfaceStats, ThermalZone, DiskIOStats, ListeningPort } from "../types.js";
 import { loadJson, saveJson, pruneByAge } from "../store.js";
 import { updateBandwidth } from "./bandwidth.js";
 
@@ -295,7 +295,7 @@ async function getTemperature(): Promise<{ maxC: number; zones: ThermalZone[] } 
 
 // --- TCP Connections + Listening Ports from /proc/net/tcp ---
 
-async function getTcpConnections(): Promise<{ established: number; listening: number; timeWait: number; total: number; listeningPorts: number[] }> {
+async function getTcpConnections(): Promise<{ established: number; listening: number; timeWait: number; total: number; listeningPorts: ListeningPort[] }> {
   try {
     const [tcp4, tcp6] = await Promise.all([
       readFile("/proc/net/tcp", "utf-8").catch(() => ""),
@@ -313,16 +313,48 @@ async function getTcpConnections(): Promise<{ established: number; listening: nu
       if (state === "01") established++;
       else if (state === "0A") {
         listening++;
-        // Extract port from local_address (field 1): hex_ip:hex_port
         const portHex = parts[1].split(":")[1];
         if (portHex) portSet.add(parseInt(portHex, 16));
       }
       else if (state === "06") timeWait++;
     }
-    return { established, listening, timeWait, total, listeningPorts: [...portSet].sort((a, b) => a - b) };
+
+    // Get process names for listening ports via ss
+    const portProcessMap = await getListeningPortProcesses();
+    const listeningPorts: ListeningPort[] = [...portSet]
+      .sort((a, b) => a - b)
+      .map(port => ({ port, process: portProcessMap.get(port) || "" }));
+
+    return { established, listening, timeWait, total, listeningPorts };
   } catch {
     return { established: 0, listening: 0, timeWait: 0, total: 0, listeningPorts: [] };
   }
+}
+
+async function getListeningPortProcesses(): Promise<Map<number, string>> {
+  const map = new Map<number, string>();
+  try {
+    const { stdout } = await execAsync("ss -tlnp", { timeout: 5000 });
+    // Example line: LISTEN  0  511  0.0.0.0:3099  0.0.0.0:*  users:(("node",pid=1234,fd=18))
+    for (const line of stdout.split("\n")) {
+      if (!line.startsWith("LISTEN")) continue;
+      const parts = line.trim().split(/\s+/);
+      // Local address is field index 3 (State, Recv-Q, Send-Q, Local Address:Port)
+      const localAddr = parts[3] || "";
+      const portStr = localAddr.split(":").pop();
+      const port = portStr ? parseInt(portStr, 10) : NaN;
+      if (isNaN(port)) continue;
+      if (map.has(port)) continue;
+      // Extract process name from users:(("name",...))
+      const usersMatch = line.match(/users:\(\("([^"]+)"/);
+      if (usersMatch) {
+        map.set(port, usersMatch[1]);
+      }
+    }
+  } catch {
+    // ss not available or failed — ports will show without process names
+  }
+  return map;
 }
 
 // --- Public API ---

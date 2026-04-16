@@ -18,10 +18,10 @@ describe("type contracts", () => {
       network: { rxKBps: 1, txKBps: 1, interfaces: [] },
       loadAvg: { load1: 0.5, load5: 0.3, load15: 0.2, runProcs: 2, totalProcs: 300 },
       temperature: { maxC: 45, zones: [{ zone: "cpu", tempC: 45 }] },
-      tcpConnections: { established: 10, listening: 5, timeWait: 2, total: 17, listeningPorts: [22, 80] },
+      tcpConnections: { established: 10, listening: 5, timeWait: 2, total: 17, listeningPorts: [{ port: 22, process: "sshd" }, { port: 80, process: "nginx" }] },
     };
     expect(stats.cpu).toBe(50);
-    expect(stats.tcpConnections.listeningPorts).toContain(22);
+    expect(stats.tcpConnections.listeningPorts[0].port).toBe(22);
   });
 
   it("SystemHistoryEntry has all persisted fields", () => {

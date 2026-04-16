@@ -932,8 +932,10 @@ function renderNetwork(data) {
   const portsEl = document.getElementById('listening-ports');
   const ports = (statusData.system.tcpConnections || {}).listeningPorts || [];
   if (ports.length > 0) {
-    portsEl.innerHTML = `<div style="display:flex;flex-wrap:wrap;gap:6px;padding:4px 0">${ports.map(port => {
-      const label = KNOWN_PORTS[port];
+    portsEl.innerHTML = `<div style="display:flex;flex-wrap:wrap;gap:6px;padding:4px 0">${ports.map(p => {
+      const port = typeof p === 'object' ? p.port : p;
+      const proc = typeof p === 'object' ? p.process : '';
+      const label = proc || KNOWN_PORTS[port] || '';
       return `<span style="display:inline-flex;align-items:center;gap:4px;padding:3px 8px;background:rgba(255,255,255,0.03);border-radius:4px;font-size:11px">
         <span style="color:var(--cyan)">${port}</span>${label ? '<span style="color:var(--purple);font-size:9px">' + label + '</span>' : ''}
       </span>`;
